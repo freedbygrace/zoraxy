@@ -381,14 +381,27 @@ networks:
             data: JSON.stringify(cfg),
             success: function(data) {
                 if (data.error) {
+                    console.error("Cluster config save error:", data.error);
                     msgbox("Error: " + data.error, false);
                 } else {
                     msgbox("Cluster configuration saved", true);
                     loadClusterStatus();
                 }
             },
-            error: function() {
-                msgbox("Failed to save cluster config", false);
+            error: function(xhr, status, error) {
+                var errorMsg = "Failed to save cluster config";
+                try {
+                    var resp = JSON.parse(xhr.responseText);
+                    if (resp.error) {
+                        errorMsg = resp.error;
+                    }
+                } catch (e) {
+                    if (xhr.responseText) {
+                        errorMsg = xhr.responseText;
+                    }
+                }
+                console.error("Cluster config save failed:", status, error, xhr.responseText);
+                msgbox("Error: " + errorMsg, false);
             }
         });
     }

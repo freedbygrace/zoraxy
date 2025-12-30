@@ -18,6 +18,7 @@ import (
 // Admin API: get or update cluster configuration
 func HandleClusterConfig(w http.ResponseWriter, r *http.Request) {
     if clusterManager == nil {
+        SystemWideLogger.PrintAndLog("cluster", "Cluster config request failed: cluster manager not initialized", nil)
         utils.SendErrorResponse(w, "cluster manager not initialized")
         return
     }
@@ -27,28 +28,43 @@ func HandleClusterConfig(w http.ResponseWriter, r *http.Request) {
         cfg := clusterManager.GetConfig()
         js, err := json.Marshal(cfg)
         if err != nil {
+            SystemWideLogger.PrintAndLog("cluster", "Failed to marshal cluster config", err)
             utils.SendErrorResponse(w, "failed to marshal config: "+err.Error())
             return
         }
         utils.SendJSONResponse(w, string(js))
     case http.MethodPost:
+        SystemWideLogger.PrintAndLog("cluster", "Received cluster config update request", nil)
         var cfg ClusterConfig
         if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+            SystemWideLogger.PrintAndLog("cluster", "Invalid JSON in cluster config request", err)
             utils.SendErrorResponse(w, "invalid json: "+err.Error())
             return
         }
         if cfg.Enabled && cfg.SharedSecret == "" {
+            SystemWideLogger.PrintAndLog("cluster", "Cluster config rejected: missing shared secret", nil)
             utils.SendErrorResponse(w, "sharedSecret is required when cluster is enabled")
             return
         }
+        SystemWideLogger.PrintAndLog("cluster", "Updating cluster config: enabled="+boolToStr(cfg.Enabled)+", swarmEnabled="+boolToStr(cfg.SwarmEnabled)+", swarmService="+cfg.SwarmService, nil)
         if err := clusterManager.UpdateConfig(cfg); err != nil {
+            SystemWideLogger.PrintAndLog("cluster", "Failed to save cluster config", err)
             utils.SendErrorResponse(w, "failed to save config: "+err.Error())
             return
         }
+        SystemWideLogger.PrintAndLog("cluster", "Cluster configuration saved successfully", nil)
         utils.SendOK(w)
     default:
         http.Error(w, "405 - Method not allowed", http.StatusMethodNotAllowed)
     }
+}
+
+// boolToStr converts a bool to "true" or "false" string for logging
+func boolToStr(b bool) string {
+    if b {
+        return "true"
+    }
+    return "false"
 }
 
 // Admin API: report cluster status
