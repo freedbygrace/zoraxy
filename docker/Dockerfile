@@ -70,6 +70,9 @@ ENV UPDATE_GEOIP="false"
 ENV VERSION="false"
 ENV WEBFM="true"
 ENV WEBROOT="./www"
+ENV CLUSTER="false"
+ENV CLUSTER_SECRET=""
+ENV CLUSTER_PEERS=""
 
 VOLUME [ "/opt/zoraxy/config/" ]
 

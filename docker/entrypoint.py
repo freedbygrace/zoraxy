@@ -103,6 +103,9 @@ def start_zoraxy():
     f"-version={ getenv('VERSION', 'false') }",
     f"-webfm={ getenv('WEBFM', 'true') }",
     f"-webroot={ getenv('WEBROOT', './www') }",
+    f"-cluster={ getenv('CLUSTER', 'false') }",
+    f"-cluster_secret={ getenv('CLUSTER_SECRET', '') }",
+    f"-cluster_peers={ getenv('CLUSTER_PEERS', '') }",
   ]
 
   zoraxy_proc = popen(zoraxy_args)

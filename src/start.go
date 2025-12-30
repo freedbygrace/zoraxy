@@ -93,9 +93,20 @@ func startupSequence() {
 		SystemWideLogger.Println("System wide logging is enabled")
 	}
 
-	LogViewer = logviewer.NewLogViewer(&logviewer.ViewerOption{
-		RootFolder: *path_logFile,
-	})
+		LogViewer = logviewer.NewLogViewer(&logviewer.ViewerOption{
+			RootFolder: *path_logFile,
+		})
+
+		// Initialize the cluster manager (for multi-node configuration replication)
+		clusterManager = NewClusterManager(CONF_CLUSTER_CONFIG, nodeUUID, SystemWideLogger)
+		if err := clusterManager.Load(); err != nil {
+			SystemWideLogger.PrintAndLog("cluster", "Failed to load cluster config", err)
+		}
+
+		// Apply cluster configuration from flags/env vars if provided
+		if *clusterEnabled || *clusterSecret != "" || *clusterPeers != "" {
+			applyClusterFlagsConfig()
+		}
 
 	//Create database
 	backendType := database.GetRecommendedBackendType()

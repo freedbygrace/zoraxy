@@ -67,16 +67,17 @@ const (
 		Configuration Folder Storage Path Constants
 		Note: No tailing slash in the path
 	*/
-	CONF_FOLDER        = "./conf"
-	CONF_HTTP_PROXY    = CONF_FOLDER + "/proxy"
-	CONF_STREAM_PROXY  = CONF_FOLDER + "/streamproxy"
-	CONF_CERT_STORE    = CONF_FOLDER + "/certs"
-	CONF_REDIRECTION   = CONF_FOLDER + "/redirect"
-	CONF_ACCESS_RULE   = CONF_FOLDER + "/access"
-	CONF_PATH_RULE     = CONF_FOLDER + "/rules/pathrules"
-	CONF_PLUGIN_GROUPS = CONF_FOLDER + "/plugin_groups.json"
-	CONF_GEODB_PATH    = CONF_FOLDER + "/geodb"
-	CONF_LOG_CONFIG    = CONF_FOLDER + "/log_conf.json"
+		CONF_FOLDER         = "./conf"
+		CONF_HTTP_PROXY     = CONF_FOLDER + "/proxy"
+		CONF_STREAM_PROXY   = CONF_FOLDER + "/streamproxy"
+		CONF_CERT_STORE     = CONF_FOLDER + "/certs"
+		CONF_REDIRECTION    = CONF_FOLDER + "/redirect"
+		CONF_ACCESS_RULE    = CONF_FOLDER + "/access"
+		CONF_PATH_RULE      = CONF_FOLDER + "/rules/pathrules"
+		CONF_PLUGIN_GROUPS  = CONF_FOLDER + "/plugin_groups.json"
+		CONF_GEODB_PATH     = CONF_FOLDER + "/geodb"
+		CONF_LOG_CONFIG     = CONF_FOLDER + "/log_conf.json"
+		CONF_CLUSTER_CONFIG = CONF_FOLDER + "/cluster.json"
 )
 
 /* System Startup Flags */
@@ -113,6 +114,15 @@ var (
 	/* Maintaince & Development Function Flags */
 	geoDbUpdate       = flag.Bool("update_geoip", false, "Download the latest GeoIP data and exit")
 	development_build = flag.Bool("dev", false, "Use external web folder for UI development")
+
+	/* Cluster Configuration Flags */
+	clusterEnabled     = flag.Bool("cluster", false, "Enable cluster mode for multi-node sync")
+	clusterSecret      = flag.String("cluster_secret", "", "Shared secret for cluster authentication")
+	clusterPeers       = flag.String("cluster_peers", "", "Comma-separated list of peer URLs (e.g., http://node2:8000,http://node3:8000)")
+	clusterSwarmMode   = flag.Bool("cluster_swarm", false, "Enable Docker Swarm auto-discovery for cluster peers")
+	clusterSwarmSvc    = flag.String("cluster_swarm_svc", "", "Docker Swarm service name for DNS discovery (e.g., zoraxy)")
+	clusterSwarmPort   = flag.Int("cluster_swarm_port", 8000, "Port used by cluster peers in Swarm mode")
+	clusterSwarmScheme = flag.String("cluster_swarm_scheme", "http", "URL scheme for Swarm peers (http or https)")
 )
 
 /* Global Variables and Handlers */
@@ -166,9 +176,10 @@ var (
 	oauth2Router      *oauth2.OAuth2Router //OAuth2Router router for OAuth2Router authentication
 
 	//Helper modules
-	EmailSender       *email.Sender         //Email sender that handle email sending
-	AnalyticLoader    *analytic.DataLoader  //Data loader for Zoraxy Analytic
-	DockerUXOptimizer *dockerux.UXOptimizer //Docker user experience optimizer, community contribution only
-	SystemWideLogger  *logger.Logger        //Logger for Zoraxy
-	LogViewer         *logviewer.Viewer     //Log viewer HTTP handlers
+		EmailSender       *email.Sender         //Email sender that handle email sending
+		AnalyticLoader    *analytic.DataLoader  //Data loader for Zoraxy Analytic
+		DockerUXOptimizer *dockerux.UXOptimizer //Docker user experience optimizer, community contribution only
+		SystemWideLogger  *logger.Logger        //Logger for Zoraxy
+		LogViewer         *logviewer.Viewer     //Log viewer HTTP handlers
+		clusterManager    *ClusterManager       //Cluster configuration and replication manager
 )

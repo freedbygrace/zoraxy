@@ -555,19 +555,24 @@ func ReverseProxyHandleAddEndpoint(w http.ResponseWriter, r *http.Request) {
 		//Invalid eptype
 		utils.SendErrorResponse(w, "invalid endpoint type")
 		return
-	}
+		}
 
-	//Save the config to file
-	err = SaveReverseProxyConfig(proxyEndpointCreated)
-	if err != nil {
-		SystemWideLogger.PrintAndLog("proxy-config", "Unable to save new proxy rule to file", err)
-		return
-	}
+		//Save the config to file
+		err = SaveReverseProxyConfig(proxyEndpointCreated)
+		if err != nil {
+			SystemWideLogger.PrintAndLog("proxy-config", "Unable to save new proxy rule to file", err)
+			return
+		}
 
-	//Update utm if exists
-	UpdateUptimeMonitorTargets()
+		// Broadcast to cluster peers if enabled
+		if clusterManager != nil {
+			go clusterManager.BroadcastProxyUpsert(r.Context(), proxyEndpointCreated)
+		}
 
-	utils.SendOK(w)
+		//Update utm if exists
+		UpdateUptimeMonitorTargets()
+
+		utils.SendOK(w)
 }
 
 /*
@@ -763,6 +768,11 @@ func ReverseProxyHandleEditEndpoint(w http.ResponseWriter, r *http.Request) {
 	//Save it to file
 	SaveReverseProxyConfig(newProxyEndpoint)
 
+	// Broadcast to cluster peers
+	if clusterManager != nil {
+		go clusterManager.BroadcastProxyUpsert(r.Context(), newProxyEndpoint)
+	}
+
 	//Update uptime monitor targets
 	UpdateUptimeMonitorTargets()
 
@@ -820,6 +830,11 @@ func ReverseProxyHandleAlias(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		utils.SendErrorResponse(w, "Alias update failed")
 		SystemWideLogger.PrintAndLog("proxy-config", "Unable to save alias update", err)
+	}
+
+	// Broadcast to cluster peers
+	if clusterManager != nil {
+		go clusterManager.BroadcastProxyUpsert(r.Context(), newProxyEndpoint)
 	}
 
 	utils.SendOK(w)
@@ -884,6 +899,11 @@ func ReverseProxyHandleSetTlsConfig(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		utils.SendErrorResponse(w, "Failed to save TLS config: "+err.Error())
 		return
+	}
+
+	// Broadcast to cluster peers
+	if clusterManager != nil {
+		go clusterManager.BroadcastProxyUpsert(r.Context(), ept)
 	}
 
 	utils.SendOK(w)
@@ -960,6 +980,11 @@ func ReverseProxyHandleSetHostname(w http.ResponseWriter, r *http.Request) {
 	//Save it to file
 	SaveReverseProxyConfig(newEndpoint)
 
+	// Broadcast to cluster peers
+	if clusterManager != nil {
+		go clusterManager.BroadcastProxyUpsert(r.Context(), newEndpoint)
+	}
+
 	//Update uptime monitor targets
 	UpdateUptimeMonitorTargets()
 
@@ -980,14 +1005,19 @@ func DeleteProxyEndpoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	//Remove the config from file
-	err = RemoveReverseProxyConfig(ep)
-	if err != nil {
-		utils.SendErrorResponse(w, err.Error())
-		return
-	}
+		//Remove the config from file
+		err = RemoveReverseProxyConfig(ep)
+		if err != nil {
+			utils.SendErrorResponse(w, err.Error())
+			return
+		}
 
-	//Update uptime monitor
+		// Broadcast deletion to cluster peers
+		if clusterManager != nil {
+			go clusterManager.BroadcastProxyDelete(r.Context(), ep)
+		}
+
+		//Update uptime monitor
 	UpdateUptimeMonitorTargets()
 
 	utils.SendOK(w)
@@ -1090,6 +1120,11 @@ func UpdateProxyBasicAuthCredentials(w http.ResponseWriter, r *http.Request) {
 
 		//Save it to file
 		SaveReverseProxyConfig(targetProxy)
+
+		// Broadcast to cluster peers
+		if clusterManager != nil {
+			go clusterManager.BroadcastProxyUpsert(r.Context(), targetProxy)
+		}
 
 		//Replace runtime configuration
 		targetProxy.UpdateToRuntime()
@@ -1249,6 +1284,11 @@ func AddProxyBasicAuthExceptionPaths(w http.ResponseWriter, r *http.Request) {
 	targetProxy.UpdateToRuntime()
 	SaveReverseProxyConfig(targetProxy)
 
+	// Broadcast to cluster peers
+	if clusterManager != nil {
+		go clusterManager.BroadcastProxyUpsert(r.Context(), targetProxy)
+	}
+
 	utils.SendOK(w)
 }
 
@@ -1336,6 +1376,11 @@ func RemoveProxyBasicAuthExceptionPaths(w http.ResponseWriter, r *http.Request) 
 	targetProxy.UpdateToRuntime()
 	SaveReverseProxyConfig(targetProxy)
 
+	// Broadcast to cluster peers
+	if clusterManager != nil {
+		go clusterManager.BroadcastProxyUpsert(r.Context(), targetProxy)
+	}
+
 	utils.SendOK(w)
 }
 
@@ -1378,6 +1423,11 @@ func ReverseProxyToggleRuleSet(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		utils.SendErrorResponse(w, "unable to save updated rule")
 		return
+	}
+
+	// Broadcast to cluster peers
+	if clusterManager != nil {
+		go clusterManager.BroadcastProxyUpsert(r.Context(), targetProxyRule)
 	}
 
 	//Update uptime monitor
@@ -1744,6 +1794,11 @@ func HandleCustomHeaderAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Broadcast to cluster peers
+	if clusterManager != nil {
+		go clusterManager.BroadcastProxyUpsert(r.Context(), targetProxyEndpoint)
+	}
+
 	utils.SendOK(w)
 }
 
@@ -1777,6 +1832,11 @@ func HandleCustomHeaderRemove(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		utils.SendErrorResponse(w, "unable to save update")
 		return
+	}
+
+	// Broadcast to cluster peers
+	if clusterManager != nil {
+		go clusterManager.BroadcastProxyUpsert(r.Context(), targetProxyEndpoint)
 	}
 
 	utils.SendOK(w)
@@ -1837,6 +1897,11 @@ func HandleHostOverwrite(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			utils.SendErrorResponse(w, err.Error())
 			return
+		}
+
+		// Broadcast to cluster peers
+		if clusterManager != nil {
+			go clusterManager.BroadcastProxyUpsert(r.Context(), newProxyEndpoint)
 		}
 
 		//Print log message
@@ -1913,6 +1978,11 @@ func HandleHopByHop(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Broadcast to cluster peers
+		if clusterManager != nil {
+			go clusterManager.BroadcastProxyUpsert(r.Context(), newProxyEndpoint)
+		}
+
 		//Print log message
 		if enableHopByHopRemover {
 			SystemWideLogger.Println("Enabled hop-by-hop headers removal on " + domain)
@@ -1987,6 +2057,11 @@ func HandleUserAgent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Broadcast to cluster peers
+		if clusterManager != nil {
+			go clusterManager.BroadcastProxyUpsert(r.Context(), newProxyEndpoint)
+		}
+
 		//Print log message
 		if enableUserAgentRemover {
 			SystemWideLogger.Println("Enabled user-agent header removal on " + domain)
@@ -2039,6 +2114,11 @@ func HandleHSTSState(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			targetProxyEndpoint.UpdateToRuntime()
+
+			// Broadcast to cluster peers
+			if clusterManager != nil {
+				go clusterManager.BroadcastProxyUpsert(r.Context(), targetProxyEndpoint)
+			}
 		} else {
 			utils.SendErrorResponse(w, "invalid max age given")
 			return
@@ -2096,6 +2176,12 @@ func HandlePermissionPolicy(w http.ResponseWriter, r *http.Request) {
 		targetProxyEndpoint.HeaderRewriteRules.EnablePermissionPolicyHeader = enableState
 		SaveReverseProxyConfig(targetProxyEndpoint)
 		targetProxyEndpoint.UpdateToRuntime()
+
+		// Broadcast to cluster peers
+		if clusterManager != nil {
+			go clusterManager.BroadcastProxyUpsert(r.Context(), targetProxyEndpoint)
+		}
+
 		utils.SendOK(w)
 		return
 	} else if r.Method == http.MethodPut {
@@ -2118,6 +2204,12 @@ func HandlePermissionPolicy(w http.ResponseWriter, r *http.Request) {
 		targetProxyEndpoint.HeaderRewriteRules.PermissionPolicy = newPermissionPolicy
 		SaveReverseProxyConfig(targetProxyEndpoint)
 		targetProxyEndpoint.UpdateToRuntime()
+
+		// Broadcast to cluster peers
+		if clusterManager != nil {
+			go clusterManager.BroadcastProxyUpsert(r.Context(), targetProxyEndpoint)
+		}
+
 		utils.SendOK(w)
 		return
 	}
@@ -2154,6 +2246,12 @@ func HandleWsHeaderBehavior(w http.ResponseWriter, r *http.Request) {
 		targetProxyEndpoint.EnableWebsocketCustomHeaders = enableWsHeader
 		SaveReverseProxyConfig(targetProxyEndpoint)
 		targetProxyEndpoint.UpdateToRuntime()
+
+		// Broadcast to cluster peers
+		if clusterManager != nil {
+			go clusterManager.BroadcastProxyUpsert(r.Context(), targetProxyEndpoint)
+		}
+
 		utils.SendOK(w)
 
 	} else {
@@ -2253,6 +2351,11 @@ func HandleSetListeningPorts(w http.ResponseWriter, r *http.Request) {
 
 	// Update the runtime configuration without restart
 	targetProxyEndpoint.UpdateToRuntime()
+
+	// Broadcast to cluster peers
+	if clusterManager != nil {
+		go clusterManager.BroadcastProxyUpsert(r.Context(), targetProxyEndpoint)
+	}
 
 	// Update secondary listeners dynamically
 	dynamicProxyRouter.UpdateSecondaryListeners()

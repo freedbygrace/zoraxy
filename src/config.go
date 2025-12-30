@@ -134,9 +134,16 @@ func RemoveReverseProxyConfig(endpoint string) error {
 	filename = filterProxyConfigFilename(filename)
 
 	if !utils.FileExists(filename) {
-		return errors.New("target endpoint not exists")
+		// Normalize to os.ErrNotExist so callers can reliably check with errors.Is
+		return os.ErrNotExist
 	}
-	return os.Remove(filename)
+	if err := os.Remove(filename); err != nil {
+		if os.IsNotExist(err) {
+			return os.ErrNotExist
+		}
+		return err
+	}
+	return nil
 }
 
 // Get the default root config that point to the internal static web server

@@ -222,6 +222,17 @@ func RegisterStaticWebServerAPIs(authRouter *auth.RouterDef) {
 	}
 }
 
+// Register the APIs for cluster configuration and inter-node replication
+func RegisterClusterAPIs(authRouter *auth.RouterDef, targetMux *http.ServeMux) {
+	// Admin APIs (management UI) for configuring the cluster
+	authRouter.HandleFunc("/api/cluster/config", HandleClusterConfig)
+	authRouter.HandleFunc("/api/cluster/status", HandleClusterStatus)
+
+	// Inter-node replication endpoints (protected by shared secret, not web auth)
+	targetMux.HandleFunc("/cluster/proxy/upsert", HandleClusterProxyUpsert)
+	targetMux.HandleFunc("/cluster/proxy/delete", HandleClusterProxyDelete)
+}
+
 // Register the APIs for Network Utilities functions
 func RegisterNetworkUtilsAPIs(authRouter *auth.RouterDef) {
 	authRouter.HandleFunc("/api/tools/ipscan", ipscan.HandleIpScan)
@@ -374,6 +385,7 @@ func initAPIs(targetMux *http.ServeMux) {
 	RegisterNetworkUtilsAPIs(authRouter)
 	RegisterACMEAndAutoRenewerAPIs(authRouter)
 	RegisterStaticWebServerAPIs(authRouter)
+		RegisterClusterAPIs(authRouter, targetMux)
 	RegisterPluginAPIs(authRouter)
 
 	//Account Reset
