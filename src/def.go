@@ -116,13 +116,13 @@ var (
 	development_build = flag.Bool("dev", false, "Use external web folder for UI development")
 
 	/* Cluster Configuration Flags */
-	clusterEnabled     = flag.Bool("cluster", false, "Enable cluster mode for multi-node sync")
-	clusterSecret      = flag.String("cluster_secret", "", "Shared secret for cluster authentication")
-	clusterPeers       = flag.String("cluster_peers", "", "Comma-separated list of peer URLs (e.g., http://node2:8000,http://node3:8000)")
-	clusterSwarmMode   = flag.Bool("cluster_swarm", false, "Enable Docker Swarm auto-discovery for cluster peers")
-	clusterSwarmSvc    = flag.String("cluster_swarm_svc", "", "Docker Swarm service name for DNS discovery (e.g., zoraxy)")
-	clusterSwarmPort   = flag.Int("cluster_swarm_port", 8000, "Port used by cluster peers in Swarm mode")
-	clusterSwarmScheme = flag.String("cluster_swarm_scheme", "http", "URL scheme for Swarm peers (http or https)")
+	clusterEnabled      = flag.Bool("cluster", false, "Enable cluster mode for multi-node sync")
+	clusterSecret       = flag.String("cluster_secret", "", "Shared secret for cluster authentication")
+	clusterPeers        = flag.String("cluster_peers", "", "Comma-separated list of peer URLs (e.g., http://node2:8000,http://node3:8000)")
+	clusterSwarmMode    = flag.Bool("cluster_swarm", false, "Enable Docker Swarm auto-discovery for cluster peers")
+	clusterSwarmService = flag.String("cluster_swarm_service", "", "DNS name for Swarm peer discovery (e.g., tasks.zoraxy for all replicas, or zoraxy for VIP)")
+	clusterSwarmPort    = flag.Int("cluster_swarm_port", 8000, "Port used by cluster peers in Swarm mode")
+	clusterSwarmScheme  = flag.String("cluster_swarm_scheme", "http", "URL scheme for Swarm peers (http or https)")
 )
 
 /* Global Variables and Handlers */

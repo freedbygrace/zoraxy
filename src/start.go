@@ -108,6 +108,11 @@ func startupSequence() {
 			applyClusterFlagsConfig()
 		}
 
+		// Start Docker Swarm auto-discovery if enabled
+		if *clusterSwarmMode && *clusterSwarmService != "" {
+			clusterManager.StartSwarmDiscovery(*clusterSwarmService, *clusterSwarmPort, *clusterSwarmScheme, 30*time.Second)
+		}
+
 	//Create database
 	backendType := database.GetRecommendedBackendType()
 	switch *databaseBackend {
