@@ -27,6 +27,11 @@ type ClusterConfig struct {
     Enabled      bool          `json:"enabled"`
     SharedSecret string        `json:"sharedSecret"`
     Peers        []ClusterPeer `json:"peers"`
+    // Swarm discovery settings (optional)
+    SwarmEnabled bool   `json:"swarmEnabled,omitempty"`
+    SwarmService string `json:"swarmService,omitempty"`
+    SwarmPort    int    `json:"swarmPort,omitempty"`
+    SwarmScheme  string `json:"swarmScheme,omitempty"`
 }
 
 type ClusterPeerStatus struct {
@@ -38,9 +43,21 @@ type ClusterPeerStatus struct {
 }
 
 type ClusterStatus struct {
-    NodeID  string              `json:"nodeId"`
-    Enabled bool                `json:"enabled"`
-    Peers   []ClusterPeerStatus `json:"peers"`
+    NodeID         string              `json:"nodeId"`
+    Enabled        bool                `json:"enabled"`
+    Peers          []ClusterPeerStatus `json:"peers"`
+    SwarmMode      bool                `json:"swarmMode"`
+    SwarmService   string              `json:"swarmService,omitempty"`
+    CertTimestamps map[string]int64    `json:"certTimestamps,omitempty"`
+}
+
+// CertSyncPayload represents a certificate being synchronized between nodes
+type CertSyncPayload struct {
+    OriginNodeID string `json:"originNodeID"`
+    Timestamp    int64  `json:"timestamp"`
+    Domain       string `json:"domain"`       // Certificate domain/filename (without extension)
+    PubKeyPEM    []byte `json:"pubKeyPem"`    // Public key in PEM format
+    PrivKeyPEM   []byte `json:"privKeyPem"`   // Private key in PEM format
 }
 
 type ClusterManager struct {
@@ -48,11 +65,12 @@ type ClusterManager struct {
     nodeID     string
     logger     *logger.Logger
 
-    mu         sync.RWMutex
-    cfg        ClusterConfig
-    peerState  map[string]ClusterPeerStatus // keyed by peer BaseURL
-    epVersions map[string]int64             // endpoint key -> last timestamp
-    httpClient *http.Client
+    mu           sync.RWMutex
+    cfg          ClusterConfig
+    peerState    map[string]ClusterPeerStatus // keyed by peer BaseURL
+    epVersions   map[string]int64             // endpoint key -> last timestamp
+    certVersions map[string]int64             // certificate domain -> last timestamp
+    httpClient   *http.Client
 
     // Swarm discovery settings
     swarmMode    bool
@@ -65,13 +83,14 @@ type ClusterManager struct {
 
 func NewClusterManager(path, nodeID string, lg *logger.Logger) *ClusterManager {
     return &ClusterManager{
-        configPath: path,
-        nodeID:     nodeID,
-        logger:     lg,
-        peerState:  make(map[string]ClusterPeerStatus),
-        epVersions: make(map[string]int64),
-        httpClient: &http.Client{Timeout: 5 * time.Second},
-        localIPs:   make(map[string]bool),
+        configPath:   path,
+        nodeID:       nodeID,
+        logger:       lg,
+        peerState:    make(map[string]ClusterPeerStatus),
+        epVersions:   make(map[string]int64),
+        certVersions: make(map[string]int64),
+        httpClient:   &http.Client{Timeout: 10 * time.Second}, // Longer timeout for cert transfers
+        localIPs:     make(map[string]bool),
     }
 }
 
@@ -124,9 +143,32 @@ func (m *ClusterManager) UpdateConfig(newCfg ClusterConfig) error {
     if newCfg.Peers == nil {
         newCfg.Peers = []ClusterPeer{}
     }
+    // Default swarm port and scheme if not set
+    if newCfg.SwarmPort == 0 {
+        newCfg.SwarmPort = 8000
+    }
+    if newCfg.SwarmScheme == "" {
+        newCfg.SwarmScheme = "http"
+    }
+
     m.mu.Lock()
+    oldSwarmEnabled := m.swarmMode
+    oldSwarmService := m.swarmSvcName
     m.cfg = newCfg
     m.mu.Unlock()
+
+    // Handle swarm discovery changes
+    if newCfg.SwarmEnabled && newCfg.SwarmService != "" {
+        // Start or restart swarm discovery if settings changed
+        if !oldSwarmEnabled || oldSwarmService != newCfg.SwarmService {
+            m.StopSwarmDiscovery()
+            m.StartSwarmDiscovery(newCfg.SwarmService, newCfg.SwarmPort, newCfg.SwarmScheme, 30*time.Second)
+        }
+    } else if oldSwarmEnabled {
+        // Stop swarm discovery if it was enabled but now disabled
+        m.StopSwarmDiscovery()
+    }
+
     return m.Save()
 }
 
@@ -162,6 +204,31 @@ func (m *ClusterManager) ShouldApplyProxyUpdate(key string, ts int64) bool {
     return false
 }
 
+// ShouldApplyCertUpdate checks if a certificate update should be applied based on timestamp
+func (m *ClusterManager) ShouldApplyCertUpdate(domain string, ts int64) bool {
+    if m == nil {
+        return false
+    }
+    m.mu.Lock()
+    defer m.mu.Unlock()
+    last, ok := m.certVersions[domain]
+    if !ok || ts > last {
+        m.certVersions[domain] = ts
+        return true
+    }
+    return false
+}
+
+// RecordCertTimestamp records a certificate timestamp (used when originating an update)
+func (m *ClusterManager) RecordCertTimestamp(domain string, ts int64) {
+    if m == nil {
+        return
+    }
+    m.mu.Lock()
+    defer m.mu.Unlock()
+    m.certVersions[domain] = ts
+}
+
 func (m *ClusterManager) recordPeerResult(baseURL string, ok bool, errMsg string) {
     m.mu.Lock()
     defer m.mu.Unlock()
@@ -180,15 +247,22 @@ func (m *ClusterManager) Status() ClusterStatus {
     m.mu.RLock()
     defer m.mu.RUnlock()
     res := ClusterStatus{
-        NodeID:  m.nodeID,
-        Enabled: m.cfg.Enabled && m.cfg.SharedSecret != "",
-        Peers:   []ClusterPeerStatus{},
+        NodeID:         m.nodeID,
+        Enabled:        m.cfg.Enabled && m.cfg.SharedSecret != "",
+        Peers:          []ClusterPeerStatus{},
+        SwarmMode:      m.swarmMode,
+        SwarmService:   m.swarmSvcName,
+        CertTimestamps: make(map[string]int64),
     }
     for _, p := range m.cfg.Peers {
         st := m.peerState[p.BaseURL]
         st.Name = p.Name
         st.BaseURL = p.BaseURL
         res.Peers = append(res.Peers, st)
+    }
+    // Copy cert timestamps
+    for k, v := range m.certVersions {
+        res.CertTimestamps[k] = v
     }
     return res
 }
@@ -285,6 +359,40 @@ func (m *ClusterManager) BroadcastProxyDelete(ctx context.Context, rootOrDomain 
         RootOrMatchingDomain: rootOrDomain,
     }
     m.broadcast(ctx, "/cluster/proxy/delete", req)
+}
+
+// BroadcastCertificate sends a certificate update to all peers
+func (m *ClusterManager) BroadcastCertificate(ctx context.Context, domain string, pubKeyPEM, privKeyPEM []byte) {
+    if m == nil || domain == "" {
+        return
+    }
+    ts := time.Now().Unix()
+    m.RecordCertTimestamp(domain, ts)
+    req := CertSyncPayload{
+        OriginNodeID: m.nodeID,
+        Timestamp:    ts,
+        Domain:       domain,
+        PubKeyPEM:    pubKeyPEM,
+        PrivKeyPEM:   privKeyPEM,
+    }
+    m.broadcast(ctx, "/cluster/certs/sync", req)
+}
+
+// BroadcastCertificateFromFiles reads certificate files and broadcasts them
+func (m *ClusterManager) BroadcastCertificateFromFiles(ctx context.Context, domain, pubKeyPath, privKeyPath string) error {
+    if m == nil {
+        return nil
+    }
+    pubKey, err := os.ReadFile(pubKeyPath)
+    if err != nil {
+        return fmt.Errorf("failed to read public key: %w", err)
+    }
+    privKey, err := os.ReadFile(privKeyPath)
+    if err != nil {
+        return fmt.Errorf("failed to read private key: %w", err)
+    }
+    m.BroadcastCertificate(ctx, domain, pubKey, privKey)
+    return nil
 }
 
 // applyClusterFlagsConfig applies cluster configuration from command-line flags/environment variables.
@@ -468,4 +576,40 @@ func (m *ClusterManager) IsSwarmMode() bool {
     m.mu.RLock()
     defer m.mu.RUnlock()
     return m.swarmMode
+}
+
+// setupCertificateClusterSync sets up callbacks to broadcast certificate changes to cluster peers
+func setupCertificateClusterSync() {
+    if clusterManager == nil {
+        return
+    }
+
+    // Callback for certificate uploads via TLS cert manager
+    certCallback := func(domain, pubKeyPath, privKeyPath string) {
+        if clusterManager == nil || !clusterManager.IsEnabled() {
+            return
+        }
+        go func() {
+            err := clusterManager.BroadcastCertificateFromFiles(context.Background(), domain, pubKeyPath, privKeyPath)
+            if err != nil {
+                if SystemWideLogger != nil {
+                    SystemWideLogger.PrintAndLog("cluster", "Failed to broadcast certificate for "+domain, err)
+                }
+            } else {
+                if SystemWideLogger != nil {
+                    SystemWideLogger.PrintAndLog("cluster", "Broadcasted certificate to cluster peers: "+domain, nil)
+                }
+            }
+        }()
+    }
+
+    // Set callback on TLS cert manager
+    if tlsCertManager != nil {
+        tlsCertManager.SetOnCertChanged(certCallback)
+    }
+
+    // Set callback on ACME handler
+    if acmeHandler != nil {
+        acmeHandler.OnCertObtained = certCallback
+    }
 }

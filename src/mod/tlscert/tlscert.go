@@ -34,6 +34,10 @@ type Manager struct {
 
 	/* External handlers */
 	hostSpecificTlsBehavior func(serverName string) (*HostSpecificTlsBehavior, error) // Function to get host specific TLS behavior, if nil, use global TLS options
+
+	// OnCertChanged is called when a certificate is uploaded or modified
+	// Parameters: domain (cert name), pubKeyPath, privKeyPath
+	OnCertChanged func(domain, pubKeyPath, privKeyPath string)
 }
 
 //go:embed localhost.pem localhost.key
@@ -90,6 +94,18 @@ func defaultHostSpecificTlsBehavior(serverName string) (*HostSpecificTlsBehavior
 
 func (m *Manager) SetHostSpecificTlsBehavior(fn func(serverName string) (*HostSpecificTlsBehavior, error)) {
 	m.hostSpecificTlsBehavior = fn
+}
+
+// SetOnCertChanged sets a callback that is invoked when certificates are uploaded or modified
+func (m *Manager) SetOnCertChanged(fn func(domain, pubKeyPath, privKeyPath string)) {
+	m.OnCertChanged = fn
+}
+
+// NotifyCertChanged invokes the OnCertChanged callback if set
+func (m *Manager) NotifyCertChanged(domain, pubKeyPath, privKeyPath string) {
+	if m.OnCertChanged != nil {
+		m.OnCertChanged(domain, pubKeyPath, privKeyPath)
+	}
 }
 
 // Update domain mapping from file

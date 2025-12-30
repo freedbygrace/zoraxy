@@ -1,0 +1,351 @@
+<div class="standardContainer">
+    <div class="ui basic segment">
+        <h2><i class="grey sitemap icon"></i> Cluster Replication</h2>
+        <p>Multi-node configuration synchronization for high availability deployments</p>
+    </div>
+
+    <!-- Status Card -->
+    <div id="clusterStatusCard" class="ui segment">
+        <div class="ui grid">
+            <div class="eight wide column">
+                <h4><i class="info circle icon"></i> Cluster Status</h4>
+                <table class="ui very basic unstackable table">
+                    <tbody>
+                        <tr><td><b>Node ID</b></td><td id="clusterNodeId">-</td></tr>
+                        <tr><td><b>Status</b></td><td id="clusterStatus">-</td></tr>
+                        <tr><td><b>Swarm Mode</b></td><td id="clusterSwarmStatus">-</td></tr>
+                        <tr><td><b>Connected Peers</b></td><td id="clusterPeerCount">0</td></tr>
+                        <tr><td><b>Synced Certificates</b></td><td id="clusterCertCount">0</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="eight wide column">
+                <h4><i class="exchange icon"></i> Peer Nodes</h4>
+                <div id="clusterPeerList" class="ui relaxed divided list">
+                    <div class="item" style="opacity: 0.5;"><i class="circle outline icon"></i> No peers configured</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="ui divider"></div>
+
+    <!-- Configuration Form -->
+    <h3><i class="cog icon"></i> Configuration</h3>
+    <p>Configure cluster mode settings. Changes take effect immediately.</p>
+
+    <div class="ui form">
+        <div class="field">
+            <div class="ui toggle checkbox">
+                <input type="checkbox" id="clusterEnabled" name="enabled">
+                <label>Enable Cluster Mode</label>
+            </div>
+        </div>
+
+        <div class="field">
+            <label>Shared Secret</label>
+            <div class="ui action input">
+                <input type="password" id="clusterSecret" placeholder="Shared secret for peer authentication">
+                <button class="ui basic button" type="button" onclick="generateSecret()"><i class="key icon"></i> Generate</button>
+            </div>
+            <small>All nodes in the cluster must use the same secret. <a href="#" onclick="toggleSecretVisibility(); return false;">Show/Hide</a></small>
+        </div>
+
+        <div class="ui divider"></div>
+
+        <h4>Peer Configuration</h4>
+        <p>Choose how peers are discovered:</p>
+
+        <div class="field">
+            <div class="ui toggle checkbox">
+                <input type="checkbox" id="swarmEnabled" onchange="toggleSwarmFields()">
+                <label>Enable Docker Swarm Auto-Discovery</label>
+            </div>
+        </div>
+
+        <!-- Swarm Discovery Fields -->
+        <div id="swarmFields" style="display: none; margin-left: 1.5em;">
+            <div class="field">
+                <label>Swarm Service DNS Name</label>
+                <input type="text" id="swarmService" placeholder="e.g., tasks.zoraxy">
+                <small>Use <code>tasks.&lt;service-name&gt;</code> to discover all replicas</small>
+            </div>
+            <div class="two fields">
+                <div class="field">
+                    <label>Port</label>
+                    <input type="number" id="swarmPort" value="8000" placeholder="8000">
+                </div>
+                <div class="field">
+                    <label>Scheme</label>
+                    <select id="swarmScheme" class="ui dropdown">
+                        <option value="http">http</option>
+                        <option value="https">https</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Manual Peer Fields -->
+        <div id="manualPeerFields">
+            <div class="field">
+                <label>Peer Nodes (Manual)</label>
+                <div id="peerInputContainer"></div>
+                <button class="ui mini basic button" type="button" onclick="addPeerInput()"><i class="plus icon"></i> Add Peer</button>
+            </div>
+        </div>
+
+        <div class="ui divider"></div>
+
+        <button class="ui basic blue button" onclick="saveClusterConfig()"><i class="save icon"></i> Save Configuration</button>
+        <button class="ui basic button" onclick="loadClusterConfig()"><i class="refresh icon"></i> Reload</button>
+    </div>
+
+    <div class="ui divider"></div>
+
+    <!-- Help Section -->
+    <div class="ui accordion">
+        <div class="title"><i class="dropdown icon"></i> <b>Docker Swarm Setup Guide</b></div>
+        <div class="content">
+            <div class="ui info message">
+                <h4>Finding Your Swarm Service Name</h4>
+                <p>Run this command on a Swarm manager node:</p>
+                <pre style="background: #f5f5f5; padding: 0.5em; border-radius: 4px;">docker service ls</pre>
+                <p>Your service name is in the NAME column. Use <code>tasks.&lt;NAME&gt;</code> for the DNS name to discover all replicas.</p>
+
+                <h4>Example Stack Configuration</h4>
+                <pre style="background: #f5f5f5; padding: 0.5em; border-radius: 4px;">version: '3.8'
+services:
+  zoraxy:
+    image: zoraxy:latest
+    deploy:
+      replicas: 3
+    environment:
+      - CLUSTER=true
+      - CLUSTER_SECRET=&lt;your-secret&gt;
+      - CLUSTER_SWARM=true
+      - CLUSTER_SWARM_SERVICE=tasks.zoraxy
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - zoraxy-net
+networks:
+  zoraxy-net:
+    driver: overlay</pre>
+            </div>
+        </div>
+        <div class="title"><i class="dropdown icon"></i> <b>Generating a Secure Secret</b></div>
+        <div class="content">
+            <div class="ui info message">
+                <p>Click the <b>Generate</b> button above, or use one of these commands:</p>
+                <p><b>Linux/macOS:</b></p>
+                <pre style="background: #f5f5f5; padding: 0.5em; border-radius: 4px;">openssl rand -base64 32</pre>
+                <p><b>PowerShell:</b></p>
+                <pre style="background: #f5f5f5; padding: 0.5em; border-radius: 4px;">[Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Maximum 256 }))</pre>
+            </div>
+        </div>
+        <div class="title"><i class="dropdown icon"></i> <b>Certificate Synchronization</b></div>
+        <div class="content">
+            <div class="ui info message">
+                <h4>How Certificate Sync Works</h4>
+                <p>When cluster mode is enabled, certificates are automatically synchronized between nodes:</p>
+                <ul>
+                    <li><b>Upload:</b> When you upload a certificate on any node, it is automatically pushed to all peer nodes.</li>
+                    <li><b>ACME/Let's Encrypt:</b> When a certificate is obtained or renewed via ACME, it is automatically distributed to all peers.</li>
+                    <li><b>Conflict Resolution:</b> Timestamp-based conflict resolution ensures the newest certificate always wins.</li>
+                </ul>
+                <h4>Alternative: Shared Storage</h4>
+                <p>For Docker Swarm deployments, you can also use shared storage instead of replication:</p>
+                <pre style="background: #f5f5f5; padding: 0.5em; border-radius: 4px;">volumes:
+  - type: volume
+    source: zoraxy-certs
+    target: /opt/zoraxy/config/certs
+    volume:
+      driver: local
+      driver_opts:
+        type: nfs
+        o: addr=nfs-server,rw
+        device: ":/exports/zoraxy-certs"</pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let clusterConfig = { enabled: false, sharedSecret: "", peers: [] };
+
+    // Load cluster config and status on page load
+    function loadClusterConfig() {
+        $.get("/api/cluster/config", function(data) {
+            if (data.error) {
+                console.error("Failed to load cluster config:", data.error);
+                return;
+            }
+            clusterConfig = data;
+            $("#clusterEnabled").prop("checked", data.enabled);
+            $("#clusterSecret").val(data.sharedSecret || "");
+
+            // Swarm settings
+            $("#swarmEnabled").prop("checked", data.swarmEnabled || false);
+            $("#swarmService").val(data.swarmService || "");
+            $("#swarmPort").val(data.swarmPort || 8000);
+            $("#swarmScheme").val(data.swarmScheme || "http");
+            toggleSwarmFields();
+
+            renderPeerInputs(data.peers || []);
+        });
+        loadClusterStatus();
+    }
+
+    function loadClusterStatus() {
+        $.get("/api/cluster/status", function(data) {
+            if (data.error) {
+                $("#clusterStatus").html('<span class="ui red text">Error</span>');
+                return;
+            }
+            $("#clusterNodeId").text(data.nodeId || "-");
+            if (data.enabled) {
+                $("#clusterStatus").html('<span class="ui green text"><i class="check circle icon"></i> Enabled</span>');
+            } else {
+                $("#clusterStatus").html('<span class="ui grey text"><i class="circle outline icon"></i> Disabled</span>');
+            }
+
+            // Swarm status
+            if (data.swarmMode) {
+                $("#clusterSwarmStatus").html('<span class="ui blue text"><i class="docker icon"></i> ' + (data.swarmService || 'Active') + '</span>');
+            } else {
+                $("#clusterSwarmStatus").html('<span class="ui grey text">Disabled</span>');
+            }
+
+            let peers = data.peers || [];
+            $("#clusterPeerCount").text(peers.length);
+            if (peers.length === 0) {
+                $("#clusterPeerList").html('<div class="item" style="opacity: 0.5;"><i class="circle outline icon"></i> No peers configured</div>');
+            } else {
+                let html = "";
+                peers.forEach(function(p) {
+                    let icon = p.lastSuccessUtc > 0 ? '<i class="green circle icon"></i>' : '<i class="grey circle outline icon"></i>';
+                    let lastSeen = p.lastSuccessUtc > 0 ? new Date(p.lastSuccessUtc * 1000).toLocaleString() : "Never";
+                    let errText = p.lastError ? ' <small class="ui red text">(' + p.lastError + ')</small>' : '';
+                    html += '<div class="item">' + icon + ' <b>' + (p.name || p.baseUrl) + '</b><br><small>Last seen: ' + lastSeen + errText + '</small></div>';
+                });
+                $("#clusterPeerList").html(html);
+            }
+
+            // Certificate sync count
+            let certCount = data.certTimestamps ? Object.keys(data.certTimestamps).length : 0;
+            $("#clusterCertCount").text(certCount);
+        });
+    }
+
+    function toggleSwarmFields() {
+        if ($("#swarmEnabled").is(":checked")) {
+            $("#swarmFields").show();
+            $("#manualPeerFields").hide();
+        } else {
+            $("#swarmFields").hide();
+            $("#manualPeerFields").show();
+        }
+    }
+
+    function toggleSecretVisibility() {
+        let input = $("#clusterSecret");
+        if (input.attr("type") === "password") {
+            input.attr("type", "text");
+        } else {
+            input.attr("type", "password");
+        }
+    }
+
+    function generateSecret() {
+        $.get("/api/cluster/secret/generate", function(data) {
+            if (data && !data.error) {
+                $("#clusterSecret").val(data).attr("type", "text");
+                msgbox("Secret generated - remember to save and copy to other nodes!", true);
+            } else {
+                msgbox("Failed to generate secret", false);
+            }
+        });
+    }
+
+    function renderPeerInputs(peers) {
+        let container = $("#peerInputContainer");
+        container.empty();
+        if (!peers || peers.length === 0) {
+            addPeerInput();
+            return;
+        }
+        peers.forEach(function(p) {
+            addPeerInput(p.name, p.baseUrl, p.enabled);
+        });
+    }
+
+    function addPeerInput(name, url, enabled) {
+        name = name || "";
+        url = url || "";
+        enabled = enabled !== false;
+        let html = `
+            <div class="peer-row fields" style="margin-bottom: 0.5em;">
+                <div class="four wide field"><input type="text" class="peer-name" placeholder="Name (optional)" value="${name}"></div>
+                <div class="ten wide field"><input type="text" class="peer-url" placeholder="http://peer-ip:8000" value="${url}"></div>
+                <div class="two wide field"><button class="ui mini basic red icon button" type="button" onclick="$(this).closest('.peer-row').remove()"><i class="trash icon"></i></button></div>
+            </div>`;
+        $("#peerInputContainer").append(html);
+    }
+
+    function saveClusterConfig() {
+        let peers = [];
+        let swarmEnabled = $("#swarmEnabled").is(":checked");
+
+        // Only collect manual peers if swarm is disabled
+        if (!swarmEnabled) {
+            $(".peer-row").each(function() {
+                let url = $(this).find(".peer-url").val().trim();
+                if (url) {
+                    peers.push({
+                        name: $(this).find(".peer-name").val().trim() || url,
+                        baseUrl: url,
+                        enabled: true
+                    });
+                }
+            });
+        }
+
+        let cfg = {
+            enabled: $("#clusterEnabled").is(":checked"),
+            sharedSecret: $("#clusterSecret").val(),
+            peers: peers,
+            swarmEnabled: swarmEnabled,
+            swarmService: $("#swarmService").val().trim(),
+            swarmPort: parseInt($("#swarmPort").val()) || 8000,
+            swarmScheme: $("#swarmScheme").val() || "http"
+        };
+
+        $.ajax({
+            url: "/api/cluster/config",
+            method: "POST",
+            contentType: "application/json",
+            data: JSON.stringify(cfg),
+            success: function(data) {
+                if (data.error) {
+                    msgbox("Error: " + data.error, false);
+                } else {
+                    msgbox("Cluster configuration saved", true);
+                    loadClusterStatus();
+                }
+            },
+            error: function() {
+                msgbox("Failed to save cluster config", false);
+            }
+        });
+    }
+
+    // Initialize
+    $(document).ready(function() {
+        loadClusterConfig();
+        // Initialize accordion
+        $('.ui.accordion').accordion();
+        // Auto-refresh status every 10 seconds
+        setInterval(loadClusterStatus, 10000);
+    });
+</script>

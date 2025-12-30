@@ -227,10 +227,13 @@ func RegisterClusterAPIs(authRouter *auth.RouterDef, targetMux *http.ServeMux) {
 	// Admin APIs (management UI) for configuring the cluster
 	authRouter.HandleFunc("/api/cluster/config", HandleClusterConfig)
 	authRouter.HandleFunc("/api/cluster/status", HandleClusterStatus)
+	authRouter.HandleFunc("/api/cluster/secret/generate", HandleClusterGenerateSecret)
 
 	// Inter-node replication endpoints (protected by shared secret, not web auth)
 	targetMux.HandleFunc("/cluster/proxy/upsert", HandleClusterProxyUpsert)
 	targetMux.HandleFunc("/cluster/proxy/delete", HandleClusterProxyDelete)
+	targetMux.HandleFunc("/cluster/certs/sync", HandleClusterCertSync)
+	targetMux.HandleFunc("/cluster/certs/list", HandleClusterCertList)
 }
 
 // Register the APIs for Network Utilities functions

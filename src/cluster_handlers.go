@@ -1,10 +1,14 @@
 package main
 
 import (
+    "crypto/rand"
+    "encoding/base64"
     "encoding/json"
     "errors"
     "net/http"
     "os"
+    "path/filepath"
+    "strings"
 
     "imuslab.com/zoraxy/mod/dynamicproxy"
     "imuslab.com/zoraxy/mod/utils"
@@ -199,3 +203,205 @@ func HandleClusterProxyDelete(w http.ResponseWriter, r *http.Request) {
     utils.SendOK(w)
 }
 
+// Admin API: generate a cryptographically secure random secret
+func HandleClusterGenerateSecret(w http.ResponseWriter, r *http.Request) {
+    if r.Method != http.MethodGet {
+        http.Error(w, "405 - Method not allowed", http.StatusMethodNotAllowed)
+        return
+    }
+    // Generate 32 bytes (256 bits) of random data
+    bytes := make([]byte, 32)
+    if _, err := rand.Read(bytes); err != nil {
+        utils.SendErrorResponse(w, "failed to generate random bytes: "+err.Error())
+        return
+    }
+    // Encode as URL-safe base64
+    secret := base64.URLEncoding.EncodeToString(bytes)
+    utils.SendTextResponse(w, secret)
+}
+
+// Inter-node API: receive a certificate sync from a peer
+// Protected by shared secret, not web auth
+func HandleClusterCertSync(w http.ResponseWriter, r *http.Request) {
+    if r.Method != http.MethodPost {
+        http.Error(w, "405 - Method not allowed", http.StatusMethodNotAllowed)
+        return
+    }
+    if clusterManager == nil || !clusterManager.IsEnabled() {
+        utils.SendErrorResponse(w, "cluster not enabled")
+        return
+    }
+
+    // Verify shared secret
+    secret := r.Header.Get("X-Zoraxy-Cluster-Secret")
+    if !clusterManager.CheckSharedSecret(secret) {
+        http.Error(w, "403 - Forbidden", http.StatusForbidden)
+        return
+    }
+
+    var payload CertSyncPayload
+    if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+        utils.SendErrorResponse(w, "invalid json: "+err.Error())
+        return
+    }
+
+    // Validate payload
+    if payload.Domain == "" {
+        utils.SendErrorResponse(w, "domain is required")
+        return
+    }
+    if len(payload.PubKeyPEM) == 0 || len(payload.PrivKeyPEM) == 0 {
+        utils.SendErrorResponse(w, "certificate data is required")
+        return
+    }
+
+    // Sanitize domain to prevent path traversal
+    domain := filepath.Base(payload.Domain)
+    domain = strings.TrimSuffix(domain, ".pem")
+    domain = strings.TrimSuffix(domain, ".key")
+    if domain == "" || domain == "." || domain == ".." {
+        utils.SendErrorResponse(w, "invalid domain")
+        return
+    }
+
+    // Check if we should apply this update (timestamp-based)
+    if !clusterManager.ShouldApplyCertUpdate(domain, payload.Timestamp) {
+        // We already have a newer version, skip
+        utils.SendOK(w)
+        return
+    }
+
+    // Write certificate files
+    pubKeyPath := filepath.Join(CONF_CERT_STORE, domain+".pem")
+    privKeyPath := filepath.Join(CONF_CERT_STORE, domain+".key")
+
+    // Ensure cert store exists
+    if err := os.MkdirAll(CONF_CERT_STORE, 0775); err != nil {
+        utils.SendErrorResponse(w, "failed to create cert store: "+err.Error())
+        return
+    }
+
+    // Write public key
+    if err := os.WriteFile(pubKeyPath, payload.PubKeyPEM, 0644); err != nil {
+        utils.SendErrorResponse(w, "failed to write public key: "+err.Error())
+        return
+    }
+
+    // Write private key
+    if err := os.WriteFile(privKeyPath, payload.PrivKeyPEM, 0600); err != nil {
+        utils.SendErrorResponse(w, "failed to write private key: "+err.Error())
+        return
+    }
+
+    // Reload certificate list in the TLS manager
+    if tlsCertManager != nil {
+        tlsCertManager.UpdateLoadedCertList()
+    }
+
+    if SystemWideLogger != nil {
+        SystemWideLogger.PrintAndLog("cluster", "Received certificate sync for domain: "+domain+" from node: "+payload.OriginNodeID, nil)
+    }
+
+    utils.SendOK(w)
+}
+
+// Inter-node API: list certificates with timestamps for full sync
+// Protected by shared secret, not web auth
+func HandleClusterCertList(w http.ResponseWriter, r *http.Request) {
+    if r.Method != http.MethodGet {
+        http.Error(w, "405 - Method not allowed", http.StatusMethodNotAllowed)
+        return
+    }
+    if clusterManager == nil || !clusterManager.IsEnabled() {
+        utils.SendErrorResponse(w, "cluster not enabled")
+        return
+    }
+
+    // Verify shared secret
+    secret := r.Header.Get("X-Zoraxy-Cluster-Secret")
+    if !clusterManager.CheckSharedSecret(secret) {
+        http.Error(w, "403 - Forbidden", http.StatusForbidden)
+        return
+    }
+
+    // List certificates
+    type CertInfo struct {
+        Domain   string `json:"domain"`
+        ModTime  int64  `json:"modTime"`
+        HasKey   bool   `json:"hasKey"`
+        HasCert  bool   `json:"hasCert"`
+    }
+
+    certs := []CertInfo{}
+
+    files, err := os.ReadDir(CONF_CERT_STORE)
+    if err != nil {
+        if os.IsNotExist(err) {
+            // No certs directory yet
+            js, _ := json.Marshal(certs)
+            utils.SendJSONResponse(w, string(js))
+            return
+        }
+        utils.SendErrorResponse(w, "failed to read cert store: "+err.Error())
+        return
+    }
+
+    // Build map of domains
+    domainMap := make(map[string]*CertInfo)
+    for _, f := range files {
+        if f.IsDir() {
+            continue
+        }
+        name := f.Name()
+        var domain string
+        var isCert, isKey bool
+
+        if strings.HasSuffix(name, ".pem") {
+            domain = strings.TrimSuffix(name, ".pem")
+            isCert = true
+        } else if strings.HasSuffix(name, ".key") {
+            domain = strings.TrimSuffix(name, ".key")
+            isKey = true
+        } else {
+            continue
+        }
+
+        info, err := f.Info()
+        if err != nil {
+            continue
+        }
+
+        if existing, ok := domainMap[domain]; ok {
+            if isCert {
+                existing.HasCert = true
+            }
+            if isKey {
+                existing.HasKey = true
+            }
+            // Use newer mod time
+            if info.ModTime().Unix() > existing.ModTime {
+                existing.ModTime = info.ModTime().Unix()
+            }
+        } else {
+            domainMap[domain] = &CertInfo{
+                Domain:  domain,
+                ModTime: info.ModTime().Unix(),
+                HasCert: isCert,
+                HasKey:  isKey,
+            }
+        }
+    }
+
+    for _, ci := range domainMap {
+        if ci.HasCert && ci.HasKey {
+            certs = append(certs, *ci)
+        }
+    }
+
+    js, err := json.Marshal(certs)
+    if err != nil {
+        utils.SendErrorResponse(w, "failed to marshal cert list: "+err.Error())
+        return
+    }
+    utils.SendJSONResponse(w, string(js))
+}

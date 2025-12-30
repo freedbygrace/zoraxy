@@ -211,6 +211,17 @@ func (m *Manager) HandleCertUpload(w http.ResponseWriter, r *http.Request) {
 	//Update cert list
 	m.UpdateLoadedCertList()
 
+	// Notify about certificate change (for cluster sync)
+	// Only trigger when private key is uploaded (means cert pair is complete or updated)
+	if keytype == "pri" {
+		pubKeyPath := filepath.Join(m.CertStore, domain+".pem")
+		privKeyPath := filepath.Join(m.CertStore, domain+".key")
+		// Check if both files exist before notifying
+		if _, err := os.Stat(pubKeyPath); err == nil {
+			m.NotifyCertChanged(domain, pubKeyPath, privKeyPath)
+		}
+	}
+
 	// send response
 	fmt.Fprintln(w, "File upload successful!")
 }

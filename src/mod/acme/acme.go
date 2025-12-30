@@ -80,6 +80,10 @@ type ACMEHandler struct {
 	Port              string
 	Database          *database.Database
 	Logger            *logger.Logger
+
+	// OnCertObtained is called when a certificate is successfully obtained
+	// Parameters: certName, pubKeyPath, privKeyPath
+	OnCertObtained func(certName, pubKeyPath, privKeyPath string)
 }
 
 // NewACME creates a new ACMEHandler instance.
@@ -343,6 +347,13 @@ func (a *ACMEHandler) ObtainCert(domains []string, certificateName string, email
 	if err != nil {
 		a.Logf("Failed to write certificate renew config to file", err)
 		return false, err
+	}
+
+	// Notify about certificate obtained (for cluster sync)
+	if a.OnCertObtained != nil {
+		pubKeyPath := "./conf/certs/" + certificateName + ".pem"
+		privKeyPath := "./conf/certs/" + certificateName + ".key"
+		a.OnCertObtained(certificateName, pubKeyPath, privKeyPath)
 	}
 
 	return true, nil

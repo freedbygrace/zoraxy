@@ -432,6 +432,9 @@ func finalSequence() {
 
 	//Set the host specific TLS behavior resolver for resolving TLS behavior for each hostname
 	tlsCertManager.SetHostSpecificTlsBehavior(dynamicProxyRouter.ResolveHostSpecificTlsBehaviorForHostname)
+
+	// Set up certificate change callbacks for cluster synchronization
+	setupCertificateClusterSync()
 }
 
 /* Shutdown Sequence */
