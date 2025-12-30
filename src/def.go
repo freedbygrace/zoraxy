@@ -123,6 +123,10 @@ var (
 	clusterSwarmService = flag.String("cluster_swarm_service", "", "DNS name for Swarm peer discovery (e.g., tasks.zoraxy for all replicas, or zoraxy for VIP)")
 	clusterSwarmPort    = flag.Int("cluster_swarm_port", 8000, "Port used by cluster peers in Swarm mode")
 	clusterSwarmScheme  = flag.String("cluster_swarm_scheme", "http", "URL scheme for Swarm peers (http or https)")
+
+	/* Initial Admin Credentials Flags */
+	adminUser     = flag.String("admin_user", "", "Initial admin username (only used if no users exist)")
+	adminPassword = flag.String("admin_password", "", "Initial admin password (only used if no users exist)")
 )
 
 /* Global Variables and Handlers */

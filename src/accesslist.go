@@ -27,6 +27,20 @@ import (
 	General Function
 */
 
+// broadcastAccessRuleToCluster broadcasts the current state of an access rule to cluster peers
+func broadcastAccessRuleToCluster(r *http.Request, ruleID string) {
+	if clusterManager == nil {
+		return
+	}
+	rule, err := accessController.GetAccessRuleByID(ruleID)
+	if err != nil {
+		return
+	}
+	clusterManager.BroadcastAccessRuleUpsert(r.Context(), rule.ID, rule.Name, rule.Desc,
+		rule.BlacklistEnabled, rule.WhitelistEnabled, rule.WhitelistAllowLocalAndLoopback,
+		*rule.WhiteListCountryCode, *rule.WhiteListIP, *rule.BlackListContryCode, *rule.BlackListIP)
+}
+
 func handleListAccessRules(w http.ResponseWriter, r *http.Request) {
 	allAccessRules := accessController.ListAllAccessRules()
 	js, _ := json.Marshal(allAccessRules)
@@ -110,6 +124,13 @@ func handleCreateAccessRule(w http.ResponseWriter, r *http.Request) {
 		},
 	)
 
+	// Broadcast to cluster peers
+	if clusterManager != nil {
+		clusterManager.BroadcastAccessRuleUpsert(r.Context(), ruleUUID, ruleName, ruleDesc,
+			false, false, false,
+			map[string]string{}, map[string]string{}, map[string]string{}, map[string]string{})
+	}
+
 	utils.SendOK(w)
 }
 
@@ -153,6 +174,11 @@ func handleRemoveAccessRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Broadcast deletion to cluster peers
+	if clusterManager != nil {
+		clusterManager.BroadcastAccessRuleDelete(r.Context(), ruleID)
+	}
+
 	SystemWideLogger.PrintAndLog("Access", "Access Rule "+ruleID+" removed", nil)
 	utils.SendOK(w)
 }
@@ -181,6 +207,9 @@ func handleUpadateAccessRule(w http.ResponseWriter, r *http.Request) {
 		utils.SendErrorResponse(w, err.Error())
 		return
 	}
+
+	// Broadcast update to cluster peers
+	broadcastAccessRuleToCluster(r, ruleID)
 
 	utils.SendOK(w)
 }
@@ -257,6 +286,7 @@ func handleCountryBlacklistAdd(w http.ResponseWriter, r *http.Request) {
 		rule.AddCountryCodeToBlackList(countryCode, comment)
 	}
 
+	broadcastAccessRuleToCluster(r, ruleID)
 	utils.SendOK(w)
 }
 
@@ -291,6 +321,7 @@ func handleCountryBlacklistRemove(w http.ResponseWriter, r *http.Request) {
 		rule.RemoveCountryCodeFromBlackList(countryCode)
 	}
 
+	broadcastAccessRuleToCluster(r, ruleID)
 	utils.SendOK(w)
 }
 
@@ -318,6 +349,7 @@ func handleIpBlacklistAdd(w http.ResponseWriter, r *http.Request) {
 	comment = p.Sanitize(comment)
 
 	rule.AddIPToBlackList(ipAddr, comment)
+	broadcastAccessRuleToCluster(r, ruleID)
 	utils.SendOK(w)
 }
 
@@ -342,6 +374,7 @@ func handleIpBlacklistRemove(w http.ResponseWriter, r *http.Request) {
 
 	rule.RemoveIPFromBlackList(ipAddr)
 
+	broadcastAccessRuleToCluster(r, ruleID)
 	utils.SendOK(w)
 }
 
@@ -373,6 +406,7 @@ func handleBlacklistEnable(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		broadcastAccessRuleToCluster(r, ruleID)
 		eventsystem.Publisher.Emit(&events.BlacklistToggledEvent{
 			RuleID:  ruleID,
 			Enabled: rule.BlacklistEnabled,
@@ -449,6 +483,7 @@ func handleCountryWhitelistAdd(w http.ResponseWriter, r *http.Request) {
 		rule.AddCountryCodeToWhitelist(countryCode, comment)
 	}
 
+	broadcastAccessRuleToCluster(r, ruleID)
 	utils.SendOK(w)
 }
 
@@ -482,6 +517,7 @@ func handleCountryWhitelistRemove(w http.ResponseWriter, r *http.Request) {
 		rule.RemoveCountryCodeFromWhitelist(countryCode)
 	}
 
+	broadcastAccessRuleToCluster(r, ruleID)
 	utils.SendOK(w)
 }
 
@@ -508,6 +544,7 @@ func handleIpWhitelistAdd(w http.ResponseWriter, r *http.Request) {
 	comment = p.Sanitize(comment)
 
 	rule.AddIPToWhiteList(ipAddr, comment)
+	broadcastAccessRuleToCluster(r, ruleID)
 	utils.SendOK(w)
 }
 
@@ -531,6 +568,7 @@ func handleIpWhitelistRemove(w http.ResponseWriter, r *http.Request) {
 
 	rule.RemoveIPFromWhiteList(ipAddr)
 
+	broadcastAccessRuleToCluster(r, ruleID)
 	utils.SendOK(w)
 }
 
@@ -562,6 +600,7 @@ func handleWhitelistEnable(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		broadcastAccessRuleToCluster(r, ruleID)
 		utils.SendOK(w)
 	}
 }
@@ -595,6 +634,7 @@ func handleWhitelistAllowLoopback(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		broadcastAccessRuleToCluster(r, ruleID)
 		utils.SendOK(w)
 	}
 }

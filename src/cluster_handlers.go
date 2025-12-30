@@ -10,6 +10,7 @@ import (
     "path/filepath"
     "strings"
 
+    "imuslab.com/zoraxy/mod/access"
     "imuslab.com/zoraxy/mod/dynamicproxy"
     "imuslab.com/zoraxy/mod/utils"
 )
@@ -404,4 +405,213 @@ func HandleClusterCertList(w http.ResponseWriter, r *http.Request) {
         return
     }
     utils.SendJSONResponse(w, string(js))
+}
+
+// HandleClusterAccessRuleSync receives access rule sync from peers
+func HandleClusterAccessRuleSync(w http.ResponseWriter, r *http.Request) {
+    if clusterManager == nil || accessController == nil {
+        utils.SendErrorResponse(w, "cluster or access controller not initialized")
+        return
+    }
+
+    if !clusterManager.IsSyncAccessRulesEnabled() {
+        utils.SendErrorResponse(w, "access rule sync disabled")
+        return
+    }
+
+    if !clusterManager.ValidateClusterRequest(r) {
+        utils.SendErrorResponse(w, "unauthorized")
+        return
+    }
+
+    var payload AccessRuleSyncPayload
+    if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+        utils.SendErrorResponse(w, "invalid payload: "+err.Error())
+        return
+    }
+
+    if payload.ID == "" {
+        utils.SendErrorResponse(w, "missing access rule ID")
+        return
+    }
+
+    // Check if we already have a newer version
+    if !clusterManager.ShouldAcceptAccessRuleUpdate(payload.ID, payload.Timestamp) {
+        utils.SendOK(w)
+        return
+    }
+
+    // Record the timestamp
+    clusterManager.RecordAccessRuleTimestamp(payload.ID, payload.Timestamp)
+
+    // Create or update the access rule
+    whiteListCC := payload.WhiteListCountryCode
+    whiteListIP := payload.WhiteListIP
+    blackListCC := payload.BlackListCountryCode
+    blackListIP := payload.BlackListIP
+
+    newRule := &access.AccessRule{
+        ID:                             payload.ID,
+        Name:                           payload.Name,
+        Desc:                           payload.Desc,
+        BlacklistEnabled:               payload.BlacklistEnabled,
+        WhitelistEnabled:               payload.WhitelistEnabled,
+        WhitelistAllowLocalAndLoopback: payload.WhitelistAllowLocal,
+        WhiteListCountryCode:           &whiteListCC,
+        WhiteListIP:                    &whiteListIP,
+        BlackListContryCode:            &blackListCC,
+        BlackListIP:                    &blackListIP,
+    }
+
+    // Check if rule exists
+    existingRule, err := accessController.GetAccessRuleByID(payload.ID)
+    if err != nil {
+        // Rule doesn't exist, add it
+        err = accessController.AddNewAccessRule(newRule)
+        if err != nil {
+            utils.SendErrorResponse(w, "failed to add access rule: "+err.Error())
+            return
+        }
+    } else {
+        // Update existing rule
+        existingRule.Name = newRule.Name
+        existingRule.Desc = newRule.Desc
+        existingRule.BlacklistEnabled = newRule.BlacklistEnabled
+        existingRule.WhitelistEnabled = newRule.WhitelistEnabled
+        existingRule.WhitelistAllowLocalAndLoopback = newRule.WhitelistAllowLocalAndLoopback
+        existingRule.WhiteListCountryCode = newRule.WhiteListCountryCode
+        existingRule.WhiteListIP = newRule.WhiteListIP
+        existingRule.BlackListContryCode = newRule.BlackListContryCode
+        existingRule.BlackListIP = newRule.BlackListIP
+        existingRule.SaveChanges()
+    }
+
+    SystemWideLogger.PrintAndLog("cluster", "Synced access rule from peer: "+payload.ID, nil)
+    utils.SendOK(w)
+}
+
+// HandleClusterAccessRuleDelete receives access rule deletion from peers
+func HandleClusterAccessRuleDelete(w http.ResponseWriter, r *http.Request) {
+    if clusterManager == nil || accessController == nil {
+        utils.SendErrorResponse(w, "cluster or access controller not initialized")
+        return
+    }
+
+    if !clusterManager.IsSyncAccessRulesEnabled() {
+        utils.SendErrorResponse(w, "access rule sync disabled")
+        return
+    }
+
+    if !clusterManager.ValidateClusterRequest(r) {
+        utils.SendErrorResponse(w, "unauthorized")
+        return
+    }
+
+    var payload struct {
+        OriginNodeID string `json:"originNodeId"`
+        Timestamp    int64  `json:"timestamp"`
+        ID           string `json:"id"`
+    }
+    if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+        utils.SendErrorResponse(w, "invalid payload: "+err.Error())
+        return
+    }
+
+    if payload.ID == "" || payload.ID == "default" {
+        utils.SendErrorResponse(w, "invalid access rule ID")
+        return
+    }
+
+    // Delete the access rule
+    err := accessController.DeleteAccessRuleByID(payload.ID)
+    if err != nil {
+        // Rule might not exist, that's OK
+        SystemWideLogger.PrintAndLog("cluster", "Access rule delete sync (may not exist): "+payload.ID, nil)
+    } else {
+        SystemWideLogger.PrintAndLog("cluster", "Deleted access rule from peer sync: "+payload.ID, nil)
+    }
+
+    utils.SendOK(w)
+}
+
+// HandleClusterRedirectSync receives redirect rule sync from peers
+func HandleClusterRedirectSync(w http.ResponseWriter, r *http.Request) {
+    if clusterManager == nil || redirectTable == nil {
+        utils.SendErrorResponse(w, "cluster or redirect table not initialized")
+        return
+    }
+
+    if !clusterManager.IsSyncRedirectsEnabled() {
+        utils.SendErrorResponse(w, "redirect sync disabled")
+        return
+    }
+
+    if !clusterManager.ValidateClusterRequest(r) {
+        utils.SendErrorResponse(w, "unauthorized")
+        return
+    }
+
+    var payload RedirectSyncPayload
+    if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+        utils.SendErrorResponse(w, "invalid payload: "+err.Error())
+        return
+    }
+
+    if payload.RedirectURL == "" {
+        utils.SendErrorResponse(w, "missing redirect URL")
+        return
+    }
+
+    // Delete existing rule if any, then add the new one
+    redirectTable.DeleteRedirectRule(payload.RedirectURL)
+    err := redirectTable.AddRedirectRule(payload.RedirectURL, payload.TargetURL, payload.ForwardChildpath, payload.StatusCode, payload.RequireExactMatch)
+    if err != nil {
+        utils.SendErrorResponse(w, "failed to add redirect rule: "+err.Error())
+        return
+    }
+
+    SystemWideLogger.PrintAndLog("cluster", "Synced redirect rule from peer: "+payload.RedirectURL, nil)
+    utils.SendOK(w)
+}
+
+// HandleClusterRedirectDelete receives redirect rule deletion from peers
+func HandleClusterRedirectDelete(w http.ResponseWriter, r *http.Request) {
+    if clusterManager == nil || redirectTable == nil {
+        utils.SendErrorResponse(w, "cluster or redirect table not initialized")
+        return
+    }
+
+    if !clusterManager.IsSyncRedirectsEnabled() {
+        utils.SendErrorResponse(w, "redirect sync disabled")
+        return
+    }
+
+    if !clusterManager.ValidateClusterRequest(r) {
+        utils.SendErrorResponse(w, "unauthorized")
+        return
+    }
+
+    var payload struct {
+        OriginNodeID string `json:"originNodeId"`
+        Timestamp    int64  `json:"timestamp"`
+        RedirectURL  string `json:"redirectUrl"`
+    }
+    if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+        utils.SendErrorResponse(w, "invalid payload: "+err.Error())
+        return
+    }
+
+    if payload.RedirectURL == "" {
+        utils.SendErrorResponse(w, "missing redirect URL")
+        return
+    }
+
+    err := redirectTable.DeleteRedirectRule(payload.RedirectURL)
+    if err != nil {
+        SystemWideLogger.PrintAndLog("cluster", "Redirect delete sync error: "+err.Error(), nil)
+    } else {
+        SystemWideLogger.PrintAndLog("cluster", "Deleted redirect rule from peer sync: "+payload.RedirectURL, nil)
+    }
+
+    utils.SendOK(w)
 }

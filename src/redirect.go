@@ -64,6 +64,11 @@ func handleAddRedirectionRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Broadcast to cluster
+	if clusterManager != nil {
+		clusterManager.BroadcastRedirectUpsert(r.Context(), redirectUrl, destUrl, forwardChildpath == "true", redirectionStatusCode, requireExactMatch == "true")
+	}
+
 	utils.SendOK(w)
 }
 
@@ -79,6 +84,11 @@ func handleDeleteRedirectionRule(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		utils.SendErrorResponse(w, err.Error())
 		return
+	}
+
+	// Broadcast to cluster
+	if clusterManager != nil {
+		clusterManager.BroadcastRedirectDelete(r.Context(), redirectUrl)
 	}
 
 	utils.SendOK(w)
@@ -128,6 +138,14 @@ func handleEditRedirectionRule(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		utils.SendErrorResponse(w, err.Error())
 		return
+	}
+
+	// Broadcast to cluster (if URL changed, delete old and add new)
+	if clusterManager != nil {
+		if originalRedirectUrl != newRedirectUrl {
+			clusterManager.BroadcastRedirectDelete(r.Context(), originalRedirectUrl)
+		}
+		clusterManager.BroadcastRedirectUpsert(r.Context(), newRedirectUrl, destUrl, forwardChildpath == "true", redirectionStatusCode, requireExactMatch == "true")
 	}
 
 	utils.SendOK(w)

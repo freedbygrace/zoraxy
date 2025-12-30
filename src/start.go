@@ -144,6 +144,16 @@ func startupSequence() {
 		http.Redirect(w, r, "/login.html", http.StatusTemporaryRedirect)
 	})
 
+	// Create initial admin account from flags/env vars if no users exist
+	if authAgent.GetUserCounts() == 0 && *adminUser != "" && *adminPassword != "" {
+		err := authAgent.CreateUserAccount(*adminUser, *adminPassword, "")
+		if err != nil {
+			SystemWideLogger.PrintAndLog("auth", "Failed to create initial admin account: "+err.Error(), nil)
+		} else {
+			SystemWideLogger.PrintAndLog("auth", "Initial admin account created from startup flags: "+*adminUser, nil)
+		}
+	}
+
 	// Create an API key manager for plugin authentication
 	pluginApiKeyManager = auth.NewAPIKeyManager()
 

@@ -96,6 +96,43 @@
 
         <div class="ui divider"></div>
 
+        <h4>Sync Options</h4>
+        <p>Choose which types of data to synchronize across cluster nodes:</p>
+        <div class="grouped fields">
+            <div class="field">
+                <div class="ui toggle checkbox">
+                    <input type="checkbox" id="syncProxies" checked>
+                    <label>Sync Proxy Endpoints</label>
+                </div>
+            </div>
+            <div class="field">
+                <div class="ui toggle checkbox">
+                    <input type="checkbox" id="syncCerts" checked>
+                    <label>Sync TLS Certificates</label>
+                </div>
+            </div>
+            <div class="field">
+                <div class="ui toggle checkbox">
+                    <input type="checkbox" id="syncRedirects" checked>
+                    <label>Sync Redirect Rules</label>
+                </div>
+            </div>
+            <div class="field">
+                <div class="ui toggle checkbox">
+                    <input type="checkbox" id="syncAccessRules" checked>
+                    <label>Sync Access Control Rules</label>
+                </div>
+            </div>
+            <div class="field">
+                <div class="ui toggle checkbox">
+                    <input type="checkbox" id="syncGlobalSettings" checked>
+                    <label>Sync Global Settings</label>
+                </div>
+            </div>
+        </div>
+
+        <div class="ui divider"></div>
+
         <button class="ui basic blue button" onclick="saveClusterConfig()"><i class="save icon"></i> Save Configuration</button>
         <button class="ui basic button" onclick="loadClusterConfig()"><i class="refresh icon"></i> Reload</button>
     </div>
@@ -124,6 +161,8 @@ services:
       - CLUSTER_SECRET=&lt;your-secret&gt;
       - CLUSTER_SWARM=true
       - CLUSTER_SWARM_SERVICE=tasks.zoraxy
+      - ZORAXY_ADMIN_USER=admin
+      - ZORAXY_ADMIN_PASSWORD=&lt;your-admin-password&gt;
     ports:
       - "80:80"
       - "443:443"
@@ -191,6 +230,13 @@ networks:
             $("#swarmPort").val(data.swarmPort || 8000);
             $("#swarmScheme").val(data.swarmScheme || "http");
             toggleSwarmFields();
+
+            // Sync toggles (default to true if not set)
+            $("#syncProxies").prop("checked", data.syncProxies !== false);
+            $("#syncCerts").prop("checked", data.syncCerts !== false);
+            $("#syncRedirects").prop("checked", data.syncRedirects !== false);
+            $("#syncAccessRules").prop("checked", data.syncAccessRules !== false);
+            $("#syncGlobalSettings").prop("checked", data.syncGlobalSettings !== false);
 
             renderPeerInputs(data.peers || []);
         });
@@ -318,7 +364,12 @@ networks:
             swarmEnabled: swarmEnabled,
             swarmService: $("#swarmService").val().trim(),
             swarmPort: parseInt($("#swarmPort").val()) || 8000,
-            swarmScheme: $("#swarmScheme").val() || "http"
+            swarmScheme: $("#swarmScheme").val() || "http",
+            syncProxies: $("#syncProxies").is(":checked"),
+            syncCerts: $("#syncCerts").is(":checked"),
+            syncRedirects: $("#syncRedirects").is(":checked"),
+            syncAccessRules: $("#syncAccessRules").is(":checked"),
+            syncGlobalSettings: $("#syncGlobalSettings").is(":checked")
         };
 
         $.ajax({
