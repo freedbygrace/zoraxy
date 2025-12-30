@@ -160,6 +160,11 @@ func ReverseProxyInit() {
 		dynamicProxyRouter.SetProxyRouteAsRoot(defaultRootRouter)
 	}
 
+	// Bootstrap UI: Add /admin/ virtual directory to expose management UI via reverse proxy
+	if *bootstrapUI {
+		setupBootstrapUI()
+	}
+
 	//Start Service
 	//Not sure why but delay must be added if you have another
 	//reverse proxy server in front of this service
@@ -2389,4 +2394,50 @@ func HandleListSecondaryListeners(w http.ResponseWriter, r *http.Request) {
 
 	js, _ := json.Marshal(listeners)
 	utils.SendJSONResponse(w, string(js))
+}
+
+// setupBootstrapUI adds a /admin/ virtual directory to the root endpoint
+// to expose the management UI via the reverse proxy on port 443/80.
+// This allows accessing the UI at https://<node-ip>/admin/ without
+// needing to publish the management port (8000) to the host.
+func setupBootstrapUI() {
+	if dynamicProxyRouter.Root == nil {
+		SystemWideLogger.PrintAndLog("bootstrap-ui", "Cannot setup bootstrap UI: root router not initialized", nil)
+		return
+	}
+
+	// Check if /admin/ virtual directory already exists
+	existingVdir := dynamicProxyRouter.Root.GetVirtualDirectoryRuleByMatchingPath("/admin/")
+	if existingVdir != nil {
+		SystemWideLogger.PrintAndLog("bootstrap-ui", "Bootstrap UI /admin/ virtual directory already exists, skipping", nil)
+		return
+	}
+
+	// Get the management UI port (strip leading colon if present)
+	managementPort := strings.TrimPrefix(*webUIPort, ":")
+
+	// Create virtual directory to route /admin/ to management UI
+	adminVdir := &dynamicproxy.VirtualDirectoryEndpoint{
+		MatchingPath:        "/admin/",
+		Domain:              "127.0.0.1:" + managementPort,
+		RequireTLS:          false,
+		SkipCertValidations: false,
+		Disabled:            false,
+	}
+
+	// Add the virtual directory rule to the root endpoint
+	activatedRoot, err := dynamicProxyRouter.Root.AddVirtualDirectoryRule(adminVdir)
+	if err != nil {
+		SystemWideLogger.PrintAndLog("bootstrap-ui", "Failed to add /admin/ virtual directory", err)
+		return
+	}
+
+	// Save the updated root config
+	err = SaveReverseProxyConfig(activatedRoot)
+	if err != nil {
+		SystemWideLogger.PrintAndLog("bootstrap-ui", "Failed to save bootstrap UI config", err)
+		return
+	}
+
+	SystemWideLogger.PrintAndLog("bootstrap-ui", "Bootstrap UI enabled: management interface accessible at /admin/", nil)
 }

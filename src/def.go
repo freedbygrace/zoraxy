@@ -127,6 +127,9 @@ var (
 	/* Initial Admin Credentials Flags */
 	adminUser     = flag.String("admin_user", "", "Initial admin username (only used if no users exist)")
 	adminPassword = flag.String("admin_password", "", "Initial admin password (only used if no users exist)")
+
+	/* Bootstrap UI Flag */
+	bootstrapUI = flag.Bool("bootstrap_ui", false, "Create a virtual directory /admin/ on root to expose management UI via reverse proxy")
 )
 
 /* Global Variables and Handlers */

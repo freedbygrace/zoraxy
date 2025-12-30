@@ -112,6 +112,7 @@ def start_zoraxy():
     f"-cluster_swarm_scheme={ getenv('CLUSTER_SWARM_SCHEME', 'http') }",
     f"-admin_user={ getenv('ZORAXY_ADMIN_USER', '') }",
     f"-admin_password={ getenv('ZORAXY_ADMIN_PASSWORD', '') }",
+    f"-bootstrap_ui={ getenv('ZORAXY_BOOTSTRAP_UI', 'false') }",
   ]
 
   zoraxy_proc = popen(zoraxy_args)

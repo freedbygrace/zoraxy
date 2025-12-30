@@ -163,6 +163,7 @@ services:
       - CLUSTER_SWARM_SERVICE=tasks.zoraxy
       - ZORAXY_ADMIN_USER=admin
       - ZORAXY_ADMIN_PASSWORD=&lt;your-admin-password&gt;
+      - ZORAXY_BOOTSTRAP_UI=true
     ports:
       - "80:80"
       - "443:443"
@@ -171,6 +172,7 @@ services:
 networks:
   zoraxy-net:
     driver: overlay</pre>
+                <p style="margin-top: 0.5em;"><b>Note:</b> <code>ZORAXY_BOOTSTRAP_UI=true</code> creates a <code>/admin/</code> virtual directory on the root endpoint, allowing you to access the management UI at <code>https://&lt;node-ip&gt;/admin/</code> via the reverse proxy without publishing port 8000.</p>
             </div>
         </div>
         <div class="title"><i class="dropdown icon"></i> <b>Generating a Secure Secret</b></div>
