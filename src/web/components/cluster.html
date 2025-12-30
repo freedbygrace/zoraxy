@@ -374,10 +374,16 @@ networks:
             syncGlobalSettings: $("#syncGlobalSettings").is(":checked")
         };
 
+        // Get CSRF token for POST request
+        let csrfToken = document.getElementsByTagName("meta")["zoraxy.csrf.Token"].getAttribute("content");
+
         $.ajax({
             url: "/api/cluster/config",
             method: "POST",
             contentType: "application/json",
+            headers: {
+                "X-CSRF-Token": csrfToken
+            },
             data: JSON.stringify(cfg),
             success: function(data) {
                 if (data.error) {

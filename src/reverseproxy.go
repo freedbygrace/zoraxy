@@ -1389,9 +1389,17 @@ func RemoveProxyBasicAuthExceptionPaths(w http.ResponseWriter, r *http.Request) 
 	utils.SendOK(w)
 }
 
+// ReverseProxyStatusResponse contains the serializable status info
+type ReverseProxyStatusResponse struct {
+	Running bool `json:"Running"`
+}
+
 // Report the current status of the reverse proxy server
 func ReverseProxyStatus(w http.ResponseWriter, r *http.Request) {
-	js, err := json.Marshal(dynamicProxyRouter)
+	status := ReverseProxyStatusResponse{
+		Running: dynamicProxyRouter.Running,
+	}
+	js, err := json.Marshal(status)
 	if err != nil {
 		SystemWideLogger.PrintAndLog("proxy-config", "Unable to marshal status data", err)
 		utils.SendErrorResponse(w, "Unable to marshal status data")
