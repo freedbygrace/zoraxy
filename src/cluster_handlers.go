@@ -5,6 +5,7 @@ import (
     "encoding/base64"
     "encoding/json"
     "errors"
+    "net"
     "net/http"
     "os"
     "path/filepath"
@@ -14,6 +15,27 @@ import (
     "imuslab.com/zoraxy/mod/dynamicproxy"
     "imuslab.com/zoraxy/mod/utils"
 )
+
+// getRequestSourceIP extracts the source IP from an incoming request
+func getRequestSourceIP(r *http.Request) string {
+    // Check X-Forwarded-For header first
+    if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+        ips := strings.Split(xff, ",")
+        if len(ips) > 0 {
+            return strings.TrimSpace(ips[0])
+        }
+    }
+    // Check X-Real-IP header
+    if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
+        return realIP
+    }
+    // Fall back to RemoteAddr
+    host, _, err := net.SplitHostPort(r.RemoteAddr)
+    if err != nil {
+        return r.RemoteAddr
+    }
+    return host
+}
 
 // Admin API: get or update cluster configuration
 func HandleClusterConfig(w http.ResponseWriter, r *http.Request) {
@@ -159,6 +181,9 @@ func HandleClusterProxyUpsert(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    // Record this node as a sync source
+    clusterManager.RecordSyncSource(req.OriginNodeID, getRequestSourceIP(r), "proxy")
+
     UpdateUptimeMonitorTargets()
     utils.SendOK(w)
 }
@@ -215,6 +240,9 @@ func HandleClusterProxyDelete(w http.ResponseWriter, r *http.Request) {
             return
         }
     }
+
+    // Record this node as a sync source
+    clusterManager.RecordSyncSource(req.OriginNodeID, getRequestSourceIP(r), "proxy-delete")
 
     UpdateUptimeMonitorTargets()
     utils.SendOK(w)
@@ -314,6 +342,9 @@ func HandleClusterCertSync(w http.ResponseWriter, r *http.Request) {
     if tlsCertManager != nil {
         tlsCertManager.UpdateLoadedCertList()
     }
+
+    // Record this node as a sync source
+    clusterManager.RecordSyncSource(payload.OriginNodeID, getRequestSourceIP(r), "cert")
 
     if SystemWideLogger != nil {
         SystemWideLogger.PrintAndLog("cluster", "Received certificate sync for domain: "+domain+" from node: "+payload.OriginNodeID, nil)
@@ -502,6 +533,9 @@ func HandleClusterAccessRuleSync(w http.ResponseWriter, r *http.Request) {
         existingRule.SaveChanges()
     }
 
+    // Record this node as a sync source
+    clusterManager.RecordSyncSource(payload.OriginNodeID, getRequestSourceIP(r), "accessRule")
+
     SystemWideLogger.PrintAndLog("cluster", "Synced access rule from peer: "+payload.ID, nil)
     utils.SendOK(w)
 }
@@ -547,6 +581,9 @@ func HandleClusterAccessRuleDelete(w http.ResponseWriter, r *http.Request) {
         SystemWideLogger.PrintAndLog("cluster", "Deleted access rule from peer sync: "+payload.ID, nil)
     }
 
+    // Record this node as a sync source
+    clusterManager.RecordSyncSource(payload.OriginNodeID, getRequestSourceIP(r), "accessRule-delete")
+
     utils.SendOK(w)
 }
 
@@ -585,6 +622,9 @@ func HandleClusterRedirectSync(w http.ResponseWriter, r *http.Request) {
         utils.SendErrorResponse(w, "failed to add redirect rule: "+err.Error())
         return
     }
+
+    // Record this node as a sync source
+    clusterManager.RecordSyncSource(payload.OriginNodeID, getRequestSourceIP(r), "redirect")
 
     SystemWideLogger.PrintAndLog("cluster", "Synced redirect rule from peer: "+payload.RedirectURL, nil)
     utils.SendOK(w)
@@ -628,6 +668,9 @@ func HandleClusterRedirectDelete(w http.ResponseWriter, r *http.Request) {
     } else {
         SystemWideLogger.PrintAndLog("cluster", "Deleted redirect rule from peer sync: "+payload.RedirectURL, nil)
     }
+
+    // Record this node as a sync source
+    clusterManager.RecordSyncSource(payload.OriginNodeID, getRequestSourceIP(r), "redirect-delete")
 
     utils.SendOK(w)
 }

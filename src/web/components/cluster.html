@@ -26,6 +26,15 @@
                 </div>
             </div>
         </div>
+        <!-- Sync Sources Section (nodes pushing to us) -->
+        <div id="syncSourcesSection" style="display: none; margin-top: 1em;">
+            <div class="ui divider"></div>
+            <h4><i class="download icon"></i> Receiving Sync From</h4>
+            <p class="ui small text" style="color: #888;">This node is receiving configuration updates from the following nodes:</p>
+            <div id="clusterSyncSources" class="ui relaxed divided list">
+                <div class="item" style="opacity: 0.5;"><i class="circle outline icon"></i> No sync sources</div>
+            </div>
+        </div>
     </div>
 
     <div class="ui divider"></div>
@@ -283,6 +292,23 @@ networks:
             // Certificate sync count
             let certCount = data.certTimestamps ? Object.keys(data.certTimestamps).length : 0;
             $("#clusterCertCount").text(certCount);
+
+            // Sync sources (nodes pushing to us)
+            let syncSources = data.syncSources || [];
+            if (syncSources.length > 0) {
+                $("#syncSourcesSection").show();
+                let html = "";
+                syncSources.forEach(function(src) {
+                    let icon = '<i class="blue download icon"></i>';
+                    let lastSync = src.lastSyncUtc > 0 ? new Date(src.lastSyncUtc * 1000).toLocaleString() : "Never";
+                    let syncType = src.lastSyncType || "unknown";
+                    html += '<div class="item">' + icon + ' <b>' + src.nodeId + '</b>';
+                    html += '<br><small>IP: ' + (src.sourceIp || 'unknown') + ' | Last sync: ' + lastSync + ' | Type: ' + syncType + '</small></div>';
+                });
+                $("#clusterSyncSources").html(html);
+            } else {
+                $("#syncSourcesSection").hide();
+            }
         });
     }
 

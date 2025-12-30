@@ -55,6 +55,15 @@ type ClusterStatus struct {
     SwarmMode      bool                `json:"swarmMode"`
     SwarmService   string              `json:"swarmService,omitempty"`
     CertTimestamps map[string]int64    `json:"certTimestamps,omitempty"`
+    SyncSources    []SyncSourceInfo    `json:"syncSources,omitempty"` // Nodes syncing TO this node
+}
+
+// SyncSourceInfo tracks nodes that are syncing to this node
+type SyncSourceInfo struct {
+    NodeID       string `json:"nodeId"`
+    SourceIP     string `json:"sourceIp"`
+    LastSyncUTC  int64  `json:"lastSyncUtc"`
+    LastSyncType string `json:"lastSyncType"` // e.g., "proxy", "cert", "redirect", "accessRule"
 }
 
 // CertSyncPayload represents a certificate being synchronized between nodes
@@ -77,6 +86,7 @@ type ClusterManager struct {
     epVersions         map[string]int64             // endpoint key -> last timestamp
     certVersions       map[string]int64             // certificate domain -> last timestamp
     accessRuleVersions map[string]int64             // access rule ID -> last timestamp
+    syncSources        map[string]SyncSourceInfo    // keyed by nodeID - tracks nodes syncing TO us
     httpClient         *http.Client
 
     // Swarm discovery settings
@@ -97,6 +107,7 @@ func NewClusterManager(path, nodeID string, lg *logger.Logger) *ClusterManager {
         epVersions:         make(map[string]int64),
         certVersions:       make(map[string]int64),
         accessRuleVersions: make(map[string]int64),
+        syncSources:        make(map[string]SyncSourceInfo),
         httpClient:         &http.Client{Timeout: 10 * time.Second}, // Longer timeout for cert transfers
         localIPs:           make(map[string]bool),
     }
@@ -339,6 +350,7 @@ func (m *ClusterManager) Status() ClusterStatus {
         SwarmMode:      m.swarmMode,
         SwarmService:   m.swarmSvcName,
         CertTimestamps: make(map[string]int64),
+        SyncSources:    []SyncSourceInfo{},
     }
     for _, p := range m.cfg.Peers {
         st := m.peerState[p.BaseURL]
@@ -350,7 +362,23 @@ func (m *ClusterManager) Status() ClusterStatus {
     for k, v := range m.certVersions {
         res.CertTimestamps[k] = v
     }
+    // Copy sync sources (nodes syncing TO this node)
+    for _, src := range m.syncSources {
+        res.SyncSources = append(res.SyncSources, src)
+    }
     return res
+}
+
+// RecordSyncSource records that a node has synced to us
+func (m *ClusterManager) RecordSyncSource(nodeID, sourceIP, syncType string) {
+    m.mu.Lock()
+    defer m.mu.Unlock()
+    m.syncSources[nodeID] = SyncSourceInfo{
+        NodeID:       nodeID,
+        SourceIP:     sourceIP,
+        LastSyncUTC:  time.Now().UTC().Unix(),
+        LastSyncType: syncType,
+    }
 }
 
 type ProxyUpsertRequest struct {
@@ -688,8 +716,10 @@ func (m *ClusterManager) discoverSwarmPeers() {
     ips, err := net.LookupIP(dnsName)
     if err != nil {
         if m.logger != nil {
-            m.logger.PrintAndLog("cluster", "Swarm DNS lookup failed for "+dnsName, err)
+            // Log as warning, not error - DNS may not be available yet during startup
+            m.logger.PrintAndLog("cluster", "Swarm DNS lookup warning for "+dnsName+" (will retry): "+err.Error(), nil)
         }
+        // Continue without peers - will retry on next interval
         return
     }
 
