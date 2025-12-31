@@ -79,6 +79,8 @@ services:
 
 Variables are the same as those in [Start Parameters](https://github.com/tobychui/zoraxy?tab=readme-ov-file#start-paramters).
 
+#### General Settings
+
 | Variable | Default | Details |
 |:-|:-|:-|
 | `AUTORENEW` | `86400` (Integer) | ACME auto TLS/SSL certificate renew check interval. |
@@ -101,6 +103,26 @@ Variables are the same as those in [Start Parameters](https://github.com/tobychu
 | `WEBROOT` | `./www` (String) | Static web server root folder. Only allow change in start parameters. |
 | `ZEROTIER` | `false` (Boolean) | Enable ZeroTier functionality for GAN. |
 
+#### Bootstrap Settings (for headless/automated deployment)
+
+| Variable | Default | Details |
+|:-|:-|:-|
+| `ZORAXY_ADMIN_USER` | `''` (String) | Admin username to create on first startup. |
+| `ZORAXY_ADMIN_PASSWORD` | `''` (String) | Admin password to create on first startup. |
+| `ZORAXY_BOOTSTRAP_UI` | `false` (Boolean) | Create a `/admin/` virtual directory on root endpoint for UI access via reverse proxy. |
+
+#### Cluster Replication Settings
+
+| Variable | Default | Details |
+|:-|:-|:-|
+| `CLUSTER` | `false` (Boolean) | Enable cluster mode for multi-node configuration sync. |
+| `CLUSTER_SECRET` | `''` (String) | Shared secret for cluster peer authentication (use a strong random string). |
+| `CLUSTER_PEERS` | `''` (String) | Comma-separated list of peer URLs (e.g., `http://node2:8000,http://node3:8000`). |
+| `CLUSTER_SWARM` | `false` (Boolean) | Enable Docker Swarm auto-discovery for peers. |
+| `CLUSTER_SWARM_SERVICE` | `''` (String) | DNS name for Swarm service discovery (e.g., `tasks.zoraxy`). |
+| `CLUSTER_SWARM_PORT` | `8000` (Integer) | Port for Swarm peer communication. |
+| `CLUSTER_SWARM_SCHEME` | `http` (String) | Scheme for Swarm peer communication (`http` or `https`). |
+
 > [!IMPORTANT]
 > Contrary to the Zoraxy README, Docker usage of the port flag should NOT include the colon. Ex: `-e PORT="8000"` for Docker run and `PORT: "8000"` for Docker compose.
 
@@ -117,6 +139,52 @@ Or for Docker Compose:
   devices:
     - /dev/net/tun:/dev/net/tun
 ```
+
+### Cluster Replication
+
+Zoraxy supports multi-node cluster replication for high availability deployments. Configuration changes (proxy rules, certificates, access rules, redirects) are automatically synchronized across all nodes.
+
+#### Features
+
+- **Automatic Synchronization**: Changes on any node are pushed to all peers
+- **Docker Swarm Auto-Discovery**: Automatically discovers peers using DNS-based service discovery
+- **Bidirectional Visibility**: Each node shows which peers it syncs to and which peers sync to it
+- **Conflict Resolution**: Timestamp-based resolution ensures consistency
+
+#### Docker Swarm Deployment
+
+For Swarm deployments, use the `docker-compose.swarm.yml` file or set these environment variables:
+
+```yaml
+environment:
+  CLUSTER: "true"
+  CLUSTER_SECRET: "your-secure-shared-secret"
+  CLUSTER_SWARM: "true"
+  CLUSTER_SWARM_SERVICE: "tasks.zoraxy"
+  ZORAXY_ADMIN_USER: "admin"
+  ZORAXY_ADMIN_PASSWORD: "your-admin-password"
+  ZORAXY_BOOTSTRAP_UI: "true"
+```
+
+The `tasks.<service-name>` DNS name resolves to all container IPs in the service, enabling automatic peer discovery.
+
+#### Manual Peer Configuration
+
+For non-Swarm deployments, configure peers manually:
+
+```yaml
+environment:
+  CLUSTER: "true"
+  CLUSTER_SECRET: "your-secure-shared-secret"
+  CLUSTER_PEERS: "http://node2:8000,http://node3:8000"
+```
+
+#### UI Features
+
+When cluster mode is enabled, the management UI shows:
+- **Cluster Status**: Current node ID, enabled state, peer count
+- **Peer Nodes**: All configured peers with connection status and last seen time
+- **Receiving Sync From**: Shows which nodes are actively pushing configuration to this node
 
 ### Plugins
 

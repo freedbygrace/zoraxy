@@ -1,0 +1,90 @@
+# Docker Swarm deployment for Zoraxy with cluster replication
+# 
+# Deploy with: docker stack deploy -c docker-compose.swarm.yml zoraxy
+#
+# This configuration enables:
+# - 3 replica instances for high availability
+# - Automatic peer discovery via DNS (tasks.zoraxy)
+# - Cluster replication of proxy rules, certificates, and access rules
+# - Bootstrap UI accessible at https://<node-ip>/admin/
+#
+# Before deploying, create the required secrets:
+#   echo "your-cluster-secret" | docker secret create zoraxy_cluster_secret -
+#   echo "your-admin-password" | docker secret create zoraxy_admin_password -
+
+version: "3.8"
+
+services:
+  zoraxy:
+    image: zoraxydocker/zoraxy:latest
+    deploy:
+      mode: replicated
+      replicas: 3
+      update_config:
+        parallelism: 1
+        delay: 30s
+        order: start-first
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      placement:
+        constraints:
+          - node.role == manager
+    ports:
+      - target: 80
+        published: 80
+        protocol: tcp
+        mode: ingress
+      - target: 443
+        published: 443
+        protocol: tcp
+        mode: ingress
+      # Management port - consider removing in production
+      # - target: 8000
+      #   published: 8000
+      #   protocol: tcp
+      #   mode: host
+    volumes:
+      - zoraxy-config:/opt/zoraxy/config/
+      - zoraxy-plugins:/opt/zoraxy/plugin/
+    networks:
+      - zoraxy-net
+    environment:
+      # General settings
+      FASTGEOIP: "true"
+      TZ: "${TZ:-Etc/UTC}"
+      
+      # Cluster settings - enable Swarm auto-discovery
+      CLUSTER: "true"
+      CLUSTER_SECRET_FILE: /run/secrets/zoraxy_cluster_secret
+      CLUSTER_SWARM: "true"
+      CLUSTER_SWARM_SERVICE: "tasks.zoraxy"
+      CLUSTER_SWARM_PORT: "8000"
+      CLUSTER_SWARM_SCHEME: "http"
+      
+      # Bootstrap settings for headless deployment
+      ZORAXY_ADMIN_USER: "${ZORAXY_ADMIN_USER:-admin}"
+      ZORAXY_ADMIN_PASSWORD_FILE: /run/secrets/zoraxy_admin_password
+      ZORAXY_BOOTSTRAP_UI: "true"
+    secrets:
+      - zoraxy_cluster_secret
+      - zoraxy_admin_password
+
+networks:
+  zoraxy-net:
+    driver: overlay
+    attachable: true
+
+volumes:
+  zoraxy-config:
+    driver: local
+  zoraxy-plugins:
+    driver: local
+
+secrets:
+  zoraxy_cluster_secret:
+    external: true
+  zoraxy_admin_password:
+    external: true
+

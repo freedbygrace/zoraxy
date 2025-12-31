@@ -24,6 +24,10 @@ A general purpose HTTP reverse proxy and forwarding tool. Now written in Go!
 - Integrated Up-time Monitor
 - Web-SSH Terminal
 - Plugin System
+- Cluster Replication (High Availability)
+  - Multi-node configuration synchronization
+  - Docker Swarm auto-discovery
+  - Automatic proxy, certificate, and access rule sync
 - Utilities
   - CIDR IP converters
   - mDNS Scanner
@@ -36,6 +40,7 @@ A general purpose HTTP reverse proxy and forwarding tool. Now written in Go!
   - External permission management system for easy system integration
   - SMTP config for password reset
   - Dark Theme Mode
+  - Headless/automated deployment with bootstrap parameters
 
 ## Downloads
 
@@ -141,6 +146,30 @@ Usage of zoraxy:
         Enable web file manager for static web server root folder (default true)
   -webroot string
         Static web server root folder. Only allow change in start paramters (default "./www")
+
+  # Bootstrap parameters (for headless/automated deployment)
+  -admin_user string
+        Admin username to create on first startup
+  -admin_password string
+        Admin password to create on first startup
+  -bootstrap_ui
+        Create /admin/ virtual directory on root endpoint for UI access (default false)
+
+  # Cluster replication parameters
+  -cluster
+        Enable cluster mode for multi-node configuration sync (default false)
+  -cluster_secret string
+        Shared secret for cluster peer authentication
+  -cluster_peers string
+        Comma-separated list of peer URLs (e.g., "http://node2:8000,http://node3:8000")
+  -cluster_swarm
+        Enable Docker Swarm auto-discovery for peers (default false)
+  -cluster_swarm_service string
+        DNS name for Swarm service discovery (e.g., "tasks.zoraxy")
+  -cluster_swarm_port int
+        Port for Swarm peer communication (default 8000)
+  -cluster_swarm_scheme string
+        Scheme for Swarm peer URLs - http or https (default "http")
 ```
 
 ### External Permission Management Mode
@@ -153,6 +182,33 @@ If you already have an upstream reverse proxy server in place with permission ma
 
 > [!WARNING]
 > For security reasons, you should only enable no-auth if you are running Zoraxy in a trusted environment or with another authentication management proxy in front.*
+
+### Cluster Replication Mode
+
+Zoraxy supports multi-node cluster replication for high availability deployments. When enabled, configuration changes are automatically synchronized across all nodes:
+
+- **Proxy endpoints** - HTTP/HTTPS routing rules
+- **TLS certificates** - Automatic certificate distribution
+- **Access rules** - Blacklist/whitelist configurations
+- **Redirect rules** - URL redirection settings
+
+#### Docker Swarm Deployment
+
+For Docker Swarm, use auto-discovery to automatically find peer nodes:
+
+```bash
+./zoraxy -cluster=true -cluster_secret="your-secret" -cluster_swarm=true -cluster_swarm_service="tasks.zoraxy"
+```
+
+#### Manual Peer Configuration
+
+For non-Swarm deployments, specify peers manually:
+
+```bash
+./zoraxy -cluster=true -cluster_secret="your-secret" -cluster_peers="http://node2:8000,http://node3:8000"
+```
+
+See the [/docker](https://github.com/tobychui/zoraxy/tree/main/docker) folder for complete Docker and Swarm deployment examples.
 
 ## Screenshots
 
