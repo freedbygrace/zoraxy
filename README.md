@@ -28,6 +28,10 @@ A general purpose HTTP reverse proxy and forwarding tool. Now written in Go!
   - Multi-node configuration synchronization
   - Docker Swarm auto-discovery
   - Automatic proxy, certificate, and access rule sync
+- REST API with Token Authentication
+  - Programmatic access to all Zoraxy resources
+  - Secure API tokens with granular scopes
+  - OpenAPI/Swagger documentation at `/api/v1/docs`
 - Utilities
   - CIDR IP converters
   - mDNS Scanner
@@ -170,6 +174,10 @@ Usage of zoraxy:
         Port for Swarm peer communication (default 8000)
   -cluster_swarm_scheme string
         Scheme for Swarm peer URLs - http or https (default "http")
+
+  # REST API parameters
+  -enable-rest-api
+        Enable REST API with token authentication (default false)
 ```
 
 ### External Permission Management Mode
@@ -209,6 +217,31 @@ For non-Swarm deployments, specify peers manually:
 ```
 
 See the [/docker](https://github.com/tobychui/zoraxy/tree/main/docker) folder for complete Docker and Swarm deployment examples.
+
+### REST API
+
+Zoraxy provides a REST API for programmatic access to all resources. Enable it with:
+
+```bash
+./zoraxy -enable-rest-api=true
+```
+
+Or via environment variable:
+
+```bash
+ZORAXY_ENABLE_REST_API=true ./zoraxy
+```
+
+Once enabled:
+1. Go to **Others > API Tokens** in the web UI
+2. Create a new token with the required scopes
+3. Use the token in your API requests:
+
+```bash
+curl -H "Authorization: Bearer zrx_your_token_here" https://your-zoraxy:8000/api/v1/proxies
+```
+
+Interactive API documentation is available at `/api/v1/docs` when the REST API is enabled.
 
 ## Screenshots
 

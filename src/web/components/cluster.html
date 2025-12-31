@@ -138,6 +138,12 @@
                     <label>Sync Global Settings</label>
                 </div>
             </div>
+            <div class="field">
+                <div class="ui toggle checkbox">
+                    <input type="checkbox" id="syncApiTokens" checked>
+                    <label>Sync API Tokens</label>
+                </div>
+            </div>
         </div>
 
         <div class="ui divider"></div>
@@ -248,6 +254,7 @@ networks:
             $("#syncRedirects").prop("checked", data.syncRedirects !== false);
             $("#syncAccessRules").prop("checked", data.syncAccessRules !== false);
             $("#syncGlobalSettings").prop("checked", data.syncGlobalSettings !== false);
+            $("#syncApiTokens").prop("checked", data.syncApiTokens !== false);
 
             renderPeerInputs(data.peers || []);
         });
@@ -397,7 +404,8 @@ networks:
             syncCerts: $("#syncCerts").is(":checked"),
             syncRedirects: $("#syncRedirects").is(":checked"),
             syncAccessRules: $("#syncAccessRules").is(":checked"),
-            syncGlobalSettings: $("#syncGlobalSettings").is(":checked")
+            syncGlobalSettings: $("#syncGlobalSettings").is(":checked"),
+            syncApiTokens: $("#syncApiTokens").is(":checked")
         };
 
         // Get CSRF token for POST request

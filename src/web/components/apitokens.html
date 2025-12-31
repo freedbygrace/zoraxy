@@ -1,0 +1,283 @@
+<style>
+    .token-display {
+        font-family: monospace;
+        background: var(--theme_background);
+        padding: 0.5em 1em;
+        border-radius: 0.5em;
+        word-break: break-all;
+    }
+    .token-display.hidden {
+        filter: blur(5px);
+        user-select: none;
+    }
+    .scope-badge {
+        margin: 0.2em;
+    }
+</style>
+<div class="standardContainer">
+    <div class="ui basic segment">
+        <h2>API Tokens</h2>
+        <p>Manage API tokens for external REST API access. Tokens can be used to authenticate requests to the <code>/api/v1/</code> endpoints.</p>
+        <div class="ui info message">
+            <div class="header">API Documentation</div>
+            <p>View the full API documentation at <a href="/api/v1/docs" target="_blank">/api/v1/docs</a></p>
+        </div>
+    </div>
+
+    <div class="ui divider"></div>
+
+    <!-- Create New Token Section -->
+    <div class="ui segment">
+        <h3><i class="plus icon"></i> Create New Token</h3>
+        <form class="ui form" id="createTokenForm">
+            <div class="field">
+                <label>Token Name</label>
+                <input type="text" name="tokenName" placeholder="e.g., CI/CD Pipeline Token" required>
+            </div>
+            <div class="field">
+                <label>Description (optional)</label>
+                <input type="text" name="tokenDescription" placeholder="What is this token used for?">
+            </div>
+            <div class="field">
+                <label>Scopes</label>
+                <div class="ui segment">
+                    <div class="ui checkbox" style="margin-right: 1em;">
+                        <input type="checkbox" name="scope" value="proxy:read">
+                        <label>proxy:read</label>
+                    </div>
+                    <div class="ui checkbox" style="margin-right: 1em;">
+                        <input type="checkbox" name="scope" value="proxy:write">
+                        <label>proxy:write</label>
+                    </div>
+                    <div class="ui checkbox" style="margin-right: 1em;">
+                        <input type="checkbox" name="scope" value="cert:read">
+                        <label>cert:read</label>
+                    </div>
+                    <div class="ui checkbox" style="margin-right: 1em;">
+                        <input type="checkbox" name="scope" value="cert:write">
+                        <label>cert:write</label>
+                    </div>
+                    <div class="ui checkbox" style="margin-right: 1em;">
+                        <input type="checkbox" name="scope" value="redirect:read">
+                        <label>redirect:read</label>
+                    </div>
+                    <div class="ui checkbox" style="margin-right: 1em;">
+                        <input type="checkbox" name="scope" value="redirect:write">
+                        <label>redirect:write</label>
+                    </div>
+                    <div class="ui checkbox" style="margin-right: 1em;">
+                        <input type="checkbox" name="scope" value="access:read">
+                        <label>access:read</label>
+                    </div>
+                    <div class="ui checkbox" style="margin-right: 1em;">
+                        <input type="checkbox" name="scope" value="access:write">
+                        <label>access:write</label>
+                    </div>
+                    <div class="ui checkbox" style="margin-right: 1em;">
+                        <input type="checkbox" name="scope" value="admin">
+                        <label>admin (full access)</label>
+                    </div>
+                </div>
+            </div>
+            <div class="field">
+                <label>Expiry (optional)</label>
+                <input type="datetime-local" name="expiry">
+            </div>
+            <button class="ui primary button" type="submit"><i class="key icon"></i> Create Token</button>
+        </form>
+    </div>
+
+    <!-- New Token Display (shown after creation) -->
+    <div class="ui green segment" id="newTokenDisplay" style="display: none;">
+        <h3><i class="check circle icon"></i> Token Created Successfully</h3>
+        <div class="ui warning message">
+            <div class="header">Important: Copy your token now!</div>
+            <p>This is the only time you will see this token. Make sure to copy it and store it securely.</p>
+        </div>
+        <div class="token-display" id="newTokenValue"></div>
+        <button class="ui button" onclick="copyNewToken()"><i class="copy icon"></i> Copy Token</button>
+        <button class="ui button" onclick="$('#newTokenDisplay').hide();"><i class="close icon"></i> Dismiss</button>
+    </div>
+
+    <div class="ui divider"></div>
+
+    <!-- Existing Tokens List -->
+    <div class="ui segment">
+        <h3><i class="list icon"></i> Existing Tokens</h3>
+        <button class="ui basic button" onclick="loadTokens()"><i class="refresh icon"></i> Refresh</button>
+        <table class="ui celled table" id="tokensTable">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Description</th>
+                    <th>Scopes</th>
+                    <th>Created</th>
+                    <th>Expires</th>
+                    <th>Last Used</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="tokensList">
+                <tr>
+                    <td colspan="7" class="center aligned">
+                        <div class="ui active inline loader"></div> Loading tokens...
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    // Initialize on load
+    $(document).ready(function() {
+        loadTokens();
+        $('.ui.checkbox').checkbox();
+        
+        $('#createTokenForm').on('submit', function(e) {
+            e.preventDefault();
+            createToken();
+        });
+    });
+
+    function loadTokens() {
+        $.get('/api/tokens/list', function(data) {
+            renderTokens(data);
+        }).fail(function(xhr) {
+            $('#tokensList').html('<tr><td colspan="7" class="center aligned error">Failed to load tokens</td></tr>');
+        });
+    }
+
+    function renderTokens(tokens) {
+        if (!tokens || tokens.length === 0) {
+            $('#tokensList').html('<tr><td colspan="7" class="center aligned">No tokens found. Create one above.</td></tr>');
+            return;
+        }
+        
+        let html = '';
+        tokens.forEach(function(token) {
+            let scopeBadges = token.Scopes.map(s => `<span class="ui tiny label scope-badge">${s}</span>`).join('');
+            let expiryText = token.Expiry ? new Date(token.Expiry).toLocaleString() : 'Never';
+            let lastUsedText = token.LastUsed ? new Date(token.LastUsed).toLocaleString() : 'Never';
+            let createdText = new Date(token.CreatedAt).toLocaleString();
+
+            html += `<tr>
+                <td><strong>${escapeHtml(token.Name)}</strong></td>
+                <td>${escapeHtml(token.Description || '-')}</td>
+                <td>${scopeBadges}</td>
+                <td>${createdText}</td>
+                <td>${expiryText}</td>
+                <td>${lastUsedText}</td>
+                <td>
+                    <button class="ui red tiny button" onclick="deleteToken('${token.ID}')">
+                        <i class="trash icon"></i> Delete
+                    </button>
+                </td>
+            </tr>`;
+        });
+
+        $('#tokensList').html(html);
+    }
+
+    function createToken() {
+        let name = $('input[name="tokenName"]').val();
+        let description = $('input[name="tokenDescription"]').val();
+        let scopes = [];
+        $('input[name="scope"]:checked').each(function() {
+            scopes.push($(this).val());
+        });
+        let expiry = $('input[name="expiry"]').val();
+
+        if (!name) {
+            alert('Please enter a token name');
+            return;
+        }
+
+        if (scopes.length === 0) {
+            alert('Please select at least one scope');
+            return;
+        }
+
+        let data = {
+            name: name,
+            description: description,
+            scopes: scopes
+        };
+
+        if (expiry) {
+            data.expiry = new Date(expiry).toISOString();
+        }
+
+        $.ajax({
+            url: '/api/tokens/create',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(data),
+            success: function(response) {
+                if (response.error) {
+                    alert('Error: ' + response.error);
+                    return;
+                }
+
+                // Show the new token
+                $('#newTokenValue').text(response.token);
+                $('#newTokenDisplay').show();
+
+                // Reset form
+                $('#createTokenForm')[0].reset();
+                $('.ui.checkbox').checkbox('uncheck');
+
+                // Reload token list
+                loadTokens();
+            },
+            error: function(xhr) {
+                alert('Failed to create token: ' + (xhr.responseJSON?.error || xhr.statusText));
+            }
+        });
+    }
+
+    function deleteToken(tokenId) {
+        if (!confirm('Are you sure you want to delete this token? This action cannot be undone.')) {
+            return;
+        }
+
+        $.ajax({
+            url: '/api/tokens/delete',
+            method: 'POST',
+            data: { id: tokenId },
+            success: function(response) {
+                if (response.error) {
+                    alert('Error: ' + response.error);
+                    return;
+                }
+                loadTokens();
+            },
+            error: function(xhr) {
+                alert('Failed to delete token: ' + (xhr.responseJSON?.error || xhr.statusText));
+            }
+        });
+    }
+
+    function copyNewToken() {
+        let token = $('#newTokenValue').text();
+        navigator.clipboard.writeText(token).then(function() {
+            msgbox('Token copied to clipboard', true);
+        }).catch(function() {
+            // Fallback for older browsers
+            let temp = $('<input>');
+            $('body').append(temp);
+            temp.val(token).select();
+            document.execCommand('copy');
+            temp.remove();
+            msgbox('Token copied to clipboard', true);
+        });
+    }
+
+    function escapeHtml(text) {
+        if (!text) return '';
+        let div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+</script>
+

@@ -33,11 +33,12 @@ type ClusterConfig struct {
     SwarmPort    int    `json:"swarmPort,omitempty"`
     SwarmScheme  string `json:"swarmScheme,omitempty"`
     // Granular sync toggles (all enabled by default if not specified)
-    SyncProxies     *bool `json:"syncProxies,omitempty"`     // Sync proxy endpoints
-    SyncCerts       *bool `json:"syncCerts,omitempty"`       // Sync TLS certificates
-    SyncRedirects   *bool `json:"syncRedirects,omitempty"`   // Sync redirect rules
-    SyncAccessRules *bool `json:"syncAccessRules,omitempty"` // Sync access control rules
+    SyncProxies        *bool `json:"syncProxies,omitempty"`        // Sync proxy endpoints
+    SyncCerts          *bool `json:"syncCerts,omitempty"`          // Sync TLS certificates
+    SyncRedirects      *bool `json:"syncRedirects,omitempty"`      // Sync redirect rules
+    SyncAccessRules    *bool `json:"syncAccessRules,omitempty"`    // Sync access control rules
     SyncGlobalSettings *bool `json:"syncGlobalSettings,omitempty"` // Sync global options
+    SyncAPITokens      *bool `json:"syncApiTokens,omitempty"`      // Sync API tokens
 }
 
 type ClusterPeerStatus struct {
@@ -262,6 +263,15 @@ func (m *ClusterManager) IsSyncGlobalSettingsEnabled() bool {
     m.mu.RLock()
     defer m.mu.RUnlock()
     return m.cfg.SyncGlobalSettings == nil || *m.cfg.SyncGlobalSettings
+}
+
+func (m *ClusterManager) IsSyncAPITokensEnabled() bool {
+    if m == nil {
+        return false
+    }
+    m.mu.RLock()
+    defer m.mu.RUnlock()
+    return m.cfg.SyncAPITokens == nil || *m.cfg.SyncAPITokens
 }
 
 func (m *ClusterManager) ShouldApplyProxyUpdate(key string, ts int64) bool {
@@ -916,4 +926,66 @@ func (m *ClusterManager) BroadcastRedirectDelete(ctx context.Context, redirectUR
         RedirectURL:  redirectURL,
     }
     m.broadcast(ctx, "/cluster/redirect/delete", req)
+}
+
+// APITokenSyncPayload represents an API token being synchronized between nodes
+type APITokenSyncPayload struct {
+    OriginNodeID string `json:"originNodeId"`
+    Timestamp    int64  `json:"timestamp"`
+    TokenID      string `json:"tokenId"`
+    Name         string `json:"name"`
+    TokenHash    string `json:"tokenHash"`
+    Scopes       string `json:"scopes"`       // JSON encoded array
+    CreatedAt    int64  `json:"createdAt"`
+    ExpiresAt    int64  `json:"expiresAt"`
+    Description  string `json:"description"`
+    Disabled     bool   `json:"disabled"`
+}
+
+// APITokenDeletePayload represents an API token being deleted
+type APITokenDeletePayload struct {
+    OriginNodeID string `json:"originNodeId"`
+    Timestamp    int64  `json:"timestamp"`
+    TokenID      string `json:"tokenId"`
+}
+
+// BroadcastAPIToken broadcasts an API token change to all peers
+func (m *ClusterManager) BroadcastAPIToken(ctx context.Context, tokenID, name, tokenHash, scopesJSON, description string, createdAt, expiresAt int64, disabled bool) {
+    if m == nil {
+        return
+    }
+    if !m.IsSyncAPITokensEnabled() {
+        return
+    }
+    ts := time.Now().Unix()
+    req := APITokenSyncPayload{
+        OriginNodeID: m.nodeID,
+        Timestamp:    ts,
+        TokenID:      tokenID,
+        Name:         name,
+        TokenHash:    tokenHash,
+        Scopes:       scopesJSON,
+        CreatedAt:    createdAt,
+        ExpiresAt:    expiresAt,
+        Description:  description,
+        Disabled:     disabled,
+    }
+    m.broadcast(ctx, "/cluster/apitoken/sync", req)
+}
+
+// BroadcastAPITokenDelete broadcasts an API token deletion to all peers
+func (m *ClusterManager) BroadcastAPITokenDelete(ctx context.Context, tokenID string) {
+    if m == nil || tokenID == "" {
+        return
+    }
+    if !m.IsSyncAPITokensEnabled() {
+        return
+    }
+    ts := time.Now().Unix()
+    req := APITokenDeletePayload{
+        OriginNodeID: m.nodeID,
+        Timestamp:    ts,
+        TokenID:      tokenID,
+    }
+    m.broadcast(ctx, "/cluster/apitoken/delete", req)
 }

@@ -117,12 +117,18 @@ func main() {
 	initAPIs(webminPanelMux)
 	initRestAPI(pluginAPIMux)
 
-	// Create API v1 router with token authentication
-	apiV1Router := NewAPIv1Router(apiTokenManager)
-
 	// Create a entry mux to accept all management interface requests
 	entryMux := http.NewServeMux()
-	entryMux.Handle("/api/v1/", apiV1Router)             //For REST API v1 access (token auth)
+
+	// Check if REST API is enabled (via flag or env var)
+	restAPIEnabled := *enableRestAPI || os.Getenv("ZORAXY_ENABLE_REST_API") == "true"
+	if restAPIEnabled {
+		// Create REST API router with token authentication
+		restAPIRouter := NewAPIv1Router(apiTokenManager)
+		entryMux.Handle("/api/v1/", restAPIRouter) //For REST API access (token auth)
+		SystemWideLogger.PrintAndLog("system", "REST API enabled at /api/v1/", nil)
+	}
+
 	entryMux.Handle("/plugin/", pluginAPIMux)            //For plugins API access
 	entryMux.Handle("/", csrfMiddleware(webminPanelMux)) //For webmin UI access, require csrf token
 

@@ -112,6 +112,9 @@ var (
 	path_webserver = flag.String("webroot", "./www", "Static web server root folder. Only allow change in start paramters")
 	path_plugin    = flag.String("plugin", "./plugins", "Plugin folder path")
 
+	/* REST API Flags */
+	enableRestAPI = flag.Bool("enable-rest-api", false, "Enable REST API with API token authentication")
+
 	/* Maintaince & Development Function Flags */
 	geoDbUpdate       = flag.Bool("update_geoip", false, "Download the latest GeoIP data and exit")
 	development_build = flag.Bool("dev", false, "Use external web folder for UI development")

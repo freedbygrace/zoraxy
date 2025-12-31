@@ -44,11 +44,13 @@ func NewAPIv1Router(tokenManager *apitoken.TokenManager) *APIv1Router {
 
 	// Register routes
 	router.registerStatusRoutes()
+	router.registerDocsRoutes()
 	router.registerProxyRoutes()
 	router.registerVdirRoutes()
 	router.registerAccessRuleRoutes()
 	router.registerRedirectRoutes()
 	router.registerCertRoutes()
+	router.registerClusterRoutes()
 
 	return router
 }
@@ -817,4 +819,154 @@ func (r *APIv1Router) deleteCert(w http.ResponseWriter, req *http.Request, domai
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "deleted": domain})
+}
+
+// registerClusterRoutes registers cluster management endpoints
+func (r *APIv1Router) registerClusterRoutes() {
+	// Cluster status
+	r.mux.HandleFunc("/api/v1/cluster/status", r.middleware.RequireScope(apitoken.ScopeAdmin, r.handleClusterStatus))
+	// Cluster config
+	r.mux.HandleFunc("/api/v1/cluster/config", r.middleware.RequireScope(apitoken.ScopeAdmin, r.handleClusterConfig))
+	// Cluster peers
+	r.mux.HandleFunc("/api/v1/cluster/peers", r.middleware.RequireScope(apitoken.ScopeAdmin, r.handleClusterPeers))
+}
+
+// handleClusterStatus returns the current cluster status
+func (r *APIv1Router) handleClusterStatus(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	if clusterManager == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"enabled": false,
+			"message": "Cluster manager not initialized",
+		})
+		return
+	}
+
+	status := clusterManager.Status()
+	json.NewEncoder(w).Encode(status)
+}
+
+// handleClusterConfig handles GET/PUT for cluster configuration
+func (r *APIv1Router) handleClusterConfig(w http.ResponseWriter, req *http.Request) {
+	if clusterManager == nil {
+		http.Error(w, `{"error":"cluster manager not initialized"}`, http.StatusServiceUnavailable)
+		return
+	}
+
+	switch req.Method {
+	case http.MethodGet:
+		cfg := clusterManager.GetConfig()
+		// Mask the shared secret for security
+		if cfg.SharedSecret != "" {
+			cfg.SharedSecret = "********"
+		}
+		json.NewEncoder(w).Encode(cfg)
+
+	case http.MethodPut:
+		var newCfg ClusterConfig
+		if err := json.NewDecoder(req.Body).Decode(&newCfg); err != nil {
+			http.Error(w, `{"error":"invalid JSON body"}`, http.StatusBadRequest)
+			return
+		}
+
+		// If shared secret is masked, keep the existing one
+		if newCfg.SharedSecret == "********" {
+			existingCfg := clusterManager.GetConfig()
+			newCfg.SharedSecret = existingCfg.SharedSecret
+		}
+
+		if err := clusterManager.UpdateConfig(newCfg); err != nil {
+			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusInternalServerError)
+			return
+		}
+
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+
+	default:
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+	}
+}
+
+// handleClusterPeers handles peer management
+func (r *APIv1Router) handleClusterPeers(w http.ResponseWriter, req *http.Request) {
+	if clusterManager == nil {
+		http.Error(w, `{"error":"cluster manager not initialized"}`, http.StatusServiceUnavailable)
+		return
+	}
+
+	switch req.Method {
+	case http.MethodGet:
+		cfg := clusterManager.GetConfig()
+		json.NewEncoder(w).Encode(cfg.Peers)
+
+	case http.MethodPost:
+		// Add a new peer
+		var peer ClusterPeer
+		if err := json.NewDecoder(req.Body).Decode(&peer); err != nil {
+			http.Error(w, `{"error":"invalid JSON body"}`, http.StatusBadRequest)
+			return
+		}
+
+		if peer.BaseURL == "" {
+			http.Error(w, `{"error":"baseUrl is required"}`, http.StatusBadRequest)
+			return
+		}
+
+		cfg := clusterManager.GetConfig()
+		// Check for duplicate
+		for _, p := range cfg.Peers {
+			if p.BaseURL == peer.BaseURL {
+				http.Error(w, `{"error":"peer already exists"}`, http.StatusConflict)
+				return
+			}
+		}
+
+		cfg.Peers = append(cfg.Peers, peer)
+		if err := clusterManager.UpdateConfig(cfg); err != nil {
+			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(peer)
+
+	case http.MethodDelete:
+		// Delete a peer by baseUrl
+		baseURL := req.URL.Query().Get("baseUrl")
+		if baseURL == "" {
+			http.Error(w, `{"error":"baseUrl query parameter is required"}`, http.StatusBadRequest)
+			return
+		}
+
+		cfg := clusterManager.GetConfig()
+		found := false
+		newPeers := make([]ClusterPeer, 0, len(cfg.Peers))
+		for _, p := range cfg.Peers {
+			if p.BaseURL == baseURL {
+				found = true
+			} else {
+				newPeers = append(newPeers, p)
+			}
+		}
+
+		if !found {
+			http.Error(w, `{"error":"peer not found"}`, http.StatusNotFound)
+			return
+		}
+
+		cfg.Peers = newPeers
+		if err := clusterManager.UpdateConfig(cfg); err != nil {
+			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusInternalServerError)
+			return
+		}
+
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "deleted": baseURL})
+
+	default:
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+	}
 }

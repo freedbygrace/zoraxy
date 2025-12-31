@@ -19,6 +19,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
@@ -330,11 +331,15 @@ func HandleZoraxyInfo(w http.ResponseWriter, r *http.Request) {
 		BootTime          int64
 		EnableSshLoopback bool
 		ZerotierConnected bool
+		RestAPIEnabled    bool
 	}
 
 	displayUUID := nodeUUID
 	displayAllowSSHLB := *allowSshLoopback
 	displayBootTime := bootTime
+
+	// Check if REST API is enabled
+	restAPIEnabled := *enableRestAPI || os.Getenv("ZORAXY_ENABLE_REST_API") == "true"
 
 	if !authAgent.CheckAuth(r) {
 		displayUUID = "Unauthorized"
@@ -348,6 +353,7 @@ func HandleZoraxyInfo(w http.ResponseWriter, r *http.Request) {
 		Development:       *development_build,
 		BootTime:          displayBootTime,
 		EnableSshLoopback: displayAllowSSHLB,
+		RestAPIEnabled:    restAPIEnabled,
 	}
 
 	js, _ := json.MarshalIndent(info, "", " ")

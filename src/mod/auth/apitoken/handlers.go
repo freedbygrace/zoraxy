@@ -103,6 +103,9 @@ func (tm *TokenManager) HandleCreateToken(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Broadcast to cluster
+	tm.broadcastToken(token)
+
 	// Return response with raw token (only time it's shown!)
 	resp := CreateTokenResponse{
 		Token:    rawToken,
@@ -174,6 +177,9 @@ func (tm *TokenManager) HandleDeleteToken(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Broadcast deletion to cluster
+	tm.broadcastTokenDelete(id)
+
 	utils.SendOK(w)
 }
 
@@ -196,6 +202,11 @@ func (tm *TokenManager) HandleToggleToken(w http.ResponseWriter, r *http.Request
 	if err := tm.DisableToken(id, disabled); err != nil {
 		utils.SendErrorResponse(w, "failed to toggle token: "+err.Error())
 		return
+	}
+
+	// Broadcast toggle to cluster
+	if token, err := tm.GetToken(id); err == nil {
+		tm.broadcastToken(token)
 	}
 
 	utils.SendOK(w)
@@ -228,6 +239,11 @@ func (tm *TokenManager) HandleUpdateToken(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Broadcast update to cluster
+	if token, err := tm.GetToken(id); err == nil {
+		tm.broadcastToken(token)
+	}
+
 	utils.SendOK(w)
 }
 
@@ -258,3 +274,36 @@ func (tm *TokenManager) HandleGetScopes(w http.ResponseWriter, r *http.Request) 
 	json.NewEncoder(w).Encode(scopes)
 }
 
+// broadcastToken broadcasts a token creation/update to the cluster
+func (tm *TokenManager) broadcastToken(token *ApiToken) {
+	if tm.onBroadcast == nil || token == nil {
+		return
+	}
+
+	// Encode scopes as JSON
+	scopesJSON, _ := json.Marshal(token.Scopes)
+
+	var expiresAt int64
+	if !token.ExpiresAt.IsZero() {
+		expiresAt = token.ExpiresAt.Unix()
+	}
+
+	tm.onBroadcast(
+		token.ID,
+		token.Name,
+		token.TokenHash,
+		string(scopesJSON),
+		token.Description,
+		token.CreatedAt.Unix(),
+		expiresAt,
+		token.Disabled,
+	)
+}
+
+// broadcastTokenDelete broadcasts a token deletion to the cluster
+func (tm *TokenManager) broadcastTokenDelete(tokenID string) {
+	if tm.onBroadcastDel == nil {
+		return
+	}
+	tm.onBroadcastDel(tokenID)
+}

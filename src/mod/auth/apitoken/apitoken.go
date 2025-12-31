@@ -34,6 +34,7 @@ const (
 	ScopeCertWrite     = "cert:write"
 	ScopeClusterRead   = "cluster:read"
 	ScopeClusterWrite  = "cluster:write"
+	ScopeAdmin         = "admin" // Full administrative access
 	ScopeAll           = "*"
 )
 
@@ -56,11 +57,19 @@ type ApiToken struct {
 	Disabled    bool      `json:"disabled"`    // Whether token is disabled
 }
 
+// ClusterBroadcastFunc is a callback for broadcasting token changes to cluster
+type ClusterBroadcastFunc func(tokenID, name, tokenHash, scopesJSON, description string, createdAt, expiresAt int64, disabled bool)
+
+// ClusterDeleteFunc is a callback for broadcasting token deletions to cluster
+type ClusterDeleteFunc func(tokenID string)
+
 // TokenManager manages API tokens
 type TokenManager struct {
-	db    *database.Database
-	cache map[string]*ApiToken // hash -> token for fast lookup
-	mutex sync.RWMutex
+	db              *database.Database
+	cache           map[string]*ApiToken // hash -> token for fast lookup
+	mutex           sync.RWMutex
+	onBroadcast     ClusterBroadcastFunc // Called when token is created/updated
+	onBroadcastDel  ClusterDeleteFunc    // Called when token is deleted
 }
 
 // NewTokenManager creates a new API token manager
@@ -81,6 +90,12 @@ func NewTokenManager(db *database.Database) (*TokenManager, error) {
 	}
 
 	return tm, nil
+}
+
+// SetClusterCallbacks sets the callbacks for cluster broadcasting
+func (tm *TokenManager) SetClusterCallbacks(onBroadcast ClusterBroadcastFunc, onDelete ClusterDeleteFunc) {
+	tm.onBroadcast = onBroadcast
+	tm.onBroadcastDel = onDelete
 }
 
 // loadTokensToCache loads all tokens from database into memory cache
@@ -173,6 +188,47 @@ func (tm *TokenManager) CreateToken(name string, scopes []string, description st
 	return token, rawToken, nil
 }
 
+// ImportTokenFromCluster imports a token that was synchronized from another cluster node
+// This uses the already-hashed token value since raw tokens are never shared between nodes
+func (tm *TokenManager) ImportTokenFromCluster(id, name, tokenHash string, scopes []string, createdAt, expiresAt time.Time, description string, disabled bool) error {
+	tm.mutex.Lock()
+	defer tm.mutex.Unlock()
+
+	token := &ApiToken{
+		ID:          id,
+		Name:        name,
+		TokenHash:   tokenHash,
+		Scopes:      scopes,
+		CreatedAt:   createdAt,
+		LastUsedAt:  time.Time{},
+		ExpiresAt:   expiresAt,
+		Description: description,
+		Disabled:    disabled,
+	}
+
+	// Save to database (will overwrite if exists)
+	if err := tm.db.Write(TableName, id, token); err != nil {
+		return err
+	}
+
+	// Update cache
+	tm.cache[tokenHash] = token
+
+	return nil
+}
+
+// GetTokenHash returns the hash for a token by ID (used for cluster sync)
+func (tm *TokenManager) GetTokenHash(id string) (string, error) {
+	tm.mutex.RLock()
+	defer tm.mutex.RUnlock()
+
+	var token ApiToken
+	if err := tm.db.Read(TableName, id, &token); err != nil {
+		return "", err
+	}
+	return token.TokenHash, nil
+}
+
 // ValidateToken validates a raw token and returns the token info if valid
 func (tm *TokenManager) ValidateToken(rawToken string) (*ApiToken, error) {
 	// Check prefix
@@ -211,7 +267,7 @@ func (tm *TokenManager) ValidateToken(rawToken string) (*ApiToken, error) {
 // HasScope checks if a token has a specific scope
 func (tm *TokenManager) HasScope(token *ApiToken, requiredScope string) bool {
 	for _, scope := range token.Scopes {
-		if scope == ScopeAll || scope == requiredScope {
+		if scope == ScopeAll || scope == ScopeAdmin || scope == requiredScope {
 			return true
 		}
 		// Check wildcard scopes (e.g., "proxy:*" matches "proxy:read")

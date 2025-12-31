@@ -10,6 +10,7 @@ import (
     "os"
     "path/filepath"
     "strings"
+    "time"
 
     "imuslab.com/zoraxy/mod/access"
     "imuslab.com/zoraxy/mod/dynamicproxy"
@@ -671,6 +672,109 @@ func HandleClusterRedirectDelete(w http.ResponseWriter, r *http.Request) {
 
     // Record this node as a sync source
     clusterManager.RecordSyncSource(payload.OriginNodeID, getRequestSourceIP(r), "redirect-delete")
+
+    utils.SendOK(w)
+}
+
+// HandleClusterAPITokenSync receives API token sync from peers
+func HandleClusterAPITokenSync(w http.ResponseWriter, r *http.Request) {
+    if clusterManager == nil || apiTokenManager == nil {
+        utils.SendErrorResponse(w, "cluster or API token manager not initialized")
+        return
+    }
+
+    if !clusterManager.IsSyncAPITokensEnabled() {
+        utils.SendErrorResponse(w, "API token sync disabled")
+        return
+    }
+
+    if !clusterManager.ValidateClusterRequest(r) {
+        utils.SendErrorResponse(w, "unauthorized")
+        return
+    }
+
+    var payload APITokenSyncPayload
+    if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+        utils.SendErrorResponse(w, "invalid payload: "+err.Error())
+        return
+    }
+
+    if payload.TokenID == "" {
+        utils.SendErrorResponse(w, "missing token ID")
+        return
+    }
+
+    // Decode the scopes JSON
+    var scopes []string
+    if payload.Scopes != "" {
+        if err := json.Unmarshal([]byte(payload.Scopes), &scopes); err != nil {
+            utils.SendErrorResponse(w, "invalid scopes JSON: "+err.Error())
+            return
+        }
+    }
+
+    // Import the token using the hash (already hashed from origin)
+    err := apiTokenManager.ImportTokenFromCluster(
+        payload.TokenID,
+        payload.Name,
+        payload.TokenHash,
+        scopes,
+        time.Unix(payload.CreatedAt, 0),
+        time.Unix(payload.ExpiresAt, 0),
+        payload.Description,
+        payload.Disabled,
+    )
+    if err != nil {
+        utils.SendErrorResponse(w, "failed to import token: "+err.Error())
+        return
+    }
+
+    // Record this node as a sync source
+    clusterManager.RecordSyncSource(payload.OriginNodeID, getRequestSourceIP(r), "apiToken")
+
+    SystemWideLogger.PrintAndLog("cluster", "Synced API token from peer: "+payload.Name, nil)
+    utils.SendOK(w)
+}
+
+// HandleClusterAPITokenDelete receives API token deletion from peers
+func HandleClusterAPITokenDelete(w http.ResponseWriter, r *http.Request) {
+    if clusterManager == nil || apiTokenManager == nil {
+        utils.SendErrorResponse(w, "cluster or API token manager not initialized")
+        return
+    }
+
+    if !clusterManager.IsSyncAPITokensEnabled() {
+        utils.SendErrorResponse(w, "API token sync disabled")
+        return
+    }
+
+    if !clusterManager.ValidateClusterRequest(r) {
+        utils.SendErrorResponse(w, "unauthorized")
+        return
+    }
+
+    var payload APITokenDeletePayload
+    if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+        utils.SendErrorResponse(w, "invalid payload: "+err.Error())
+        return
+    }
+
+    if payload.TokenID == "" {
+        utils.SendErrorResponse(w, "missing token ID")
+        return
+    }
+
+    // Delete the token
+    err := apiTokenManager.DeleteToken(payload.TokenID)
+    if err != nil {
+        // Token might not exist, that's OK
+        SystemWideLogger.PrintAndLog("cluster", "API token delete sync (may not exist): "+payload.TokenID, nil)
+    } else {
+        SystemWideLogger.PrintAndLog("cluster", "Deleted API token from peer sync: "+payload.TokenID, nil)
+    }
+
+    // Record this node as a sync source
+    clusterManager.RecordSyncSource(payload.OriginNodeID, getRequestSourceIP(r), "apiToken-delete")
 
     utils.SendOK(w)
 }

@@ -17,7 +17,10 @@
 #
 # Environment variables can be set in a .env file or passed directly
 
-version: "3.8"
+networks:
+  zoraxy-net:
+    driver: overlay
+    attachable: true
 
 services:
   zoraxy:
@@ -38,7 +41,6 @@ services:
           - node.platform.os == linux
           - node.labels.EdgeLoadBalancer == true
     ports:
-      # Host mode for direct client IP visibility (no NAT through ingress)
       - target: 80
         published: 80
         protocol: tcp
@@ -50,70 +52,30 @@ services:
     volumes:
       - ${STACK_BINDMOUNTROOT:-/opt/zoraxy}/config/:/opt/zoraxy/config/
       - ${STACK_BINDMOUNTROOT:-/opt/zoraxy}/plugin/:/opt/zoraxy/plugin/
-      # Shared certificate storage (alternative to cluster replication)
-      # Mount a shared filesystem (NFS, GlusterFS, etc.) to the host first,
-      # then bind mount it here. Uncomment to use:
-      # - ${STACK_BINDMOUNTROOT:-/opt/zoraxy}/certs/:/opt/zoraxy/config/certs/
     networks:
       - zoraxy-net
     environment:
-      ###BEGIN GENERAL###
       TZ: "${TZ:-America/New_York}"
       FASTGEOIP: "${FASTGEOIP:-true}"
       DB: "${DB:-auto}"
       ENABLELOG: "${ENABLELOG:-true}"
-      ###END GENERAL###
-
-      ###BEGIN CLUSTER###
       CLUSTER: "${CLUSTER:-true}"
       CLUSTER_SECRET: "${CLUSTER_SECRET}"
       CLUSTER_PEERS: "${CLUSTER_PEERS:-}"
-      ###END CLUSTER###
-
-      ###BEGIN SWARM###
-      # DNS format: tasks.<stack-name>_<service-name>
-      # Deploy with: docker stack deploy -c docker-compose.swarm.yml EdgeLoadBalancer
       CLUSTER_SWARM: "${CLUSTER_SWARM:-true}"
       CLUSTER_SWARM_SERVICE: "${CLUSTER_SWARM_SERVICE:-tasks.EdgeLoadBalancer_Zoraxy}"
       CLUSTER_SWARM_PORT: "${CLUSTER_SWARM_PORT:-8000}"
       CLUSTER_SWARM_SCHEME: "${CLUSTER_SWARM_SCHEME:-http}"
-      ###END SWARM###
-
-      ###BEGIN BOOTSTRAP###
       ZORAXY_ADMIN_USER: "${ZORAXY_ADMIN_USER:-admin}"
       ZORAXY_ADMIN_PASSWORD: "${ZORAXY_ADMIN_PASSWORD}"
       ZORAXY_BOOTSTRAP_UI: "${ZORAXY_BOOTSTRAP_UI:-true}"
-      ###END BOOTSTRAP###
-
-      ###BEGIN CERTIFICATES###
       AUTORENEW: "${AUTORENEW:-86400}"
       EARLYRENEW: "${EARLYRENEW:-30}"
-      ###END CERTIFICATES###
-
-      ###BEGIN MDNS###
       MDNS: "${MDNS:-true}"
       MDNSNAME: "${MDNSNAME:-}"
-      ###END MDNS###
-
-      ###BEGIN SECURITY###
       NOAUTH: "${NOAUTH:-false}"
       SSHLB: "${SSHLB:-false}"
-      ###END SECURITY###
-
-      ###BEGIN WEBSERVER###
       WEBFM: "${WEBFM:-true}"
       WEBROOT: "${WEBROOT:-./www}"
-      ###END WEBSERVER###
-
-      ###BEGIN ZEROTIER###
       ZEROTIER: "${ZEROTIER:-false}"
-      ###END ZEROTIER###
-
-      ###BEGIN PLUGINS###
       PLUGIN: "${PLUGIN:-/opt/zoraxy/plugin/}"
-      ###END PLUGINS###
-
-networks:
-  zoraxy-net:
-    driver: overlay
-    attachable: true

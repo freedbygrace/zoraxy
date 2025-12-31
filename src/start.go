@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"net/netip"
@@ -162,6 +163,17 @@ func startupSequence() {
 	apiTokenManager, err = apitoken.NewTokenManager(sysdb)
 	if err != nil {
 		log.Fatal("Failed to initialize API token manager: " + err.Error())
+	}
+	// Set cluster callbacks for API token sync
+	if clusterManager != nil {
+		apiTokenManager.SetClusterCallbacks(
+			func(tokenID, name, tokenHash, scopesJSON, description string, createdAt, expiresAt int64, disabled bool) {
+				clusterManager.BroadcastAPIToken(context.Background(), tokenID, name, tokenHash, scopesJSON, description, createdAt, expiresAt, disabled)
+			},
+			func(tokenID string) {
+				clusterManager.BroadcastAPITokenDelete(context.Background(), tokenID)
+			},
+		)
 	}
 	SystemWideLogger.PrintAndLog("auth", "API token manager initialized", nil)
 

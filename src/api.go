@@ -238,6 +238,8 @@ func RegisterClusterAPIs(authRouter *auth.RouterDef, targetMux *http.ServeMux) {
 	targetMux.HandleFunc("/cluster/access/delete", HandleClusterAccessRuleDelete)
 	targetMux.HandleFunc("/cluster/redirect/sync", HandleClusterRedirectSync)
 	targetMux.HandleFunc("/cluster/redirect/delete", HandleClusterRedirectDelete)
+	targetMux.HandleFunc("/cluster/apitoken/sync", HandleClusterAPITokenSync)
+	targetMux.HandleFunc("/cluster/apitoken/delete", HandleClusterAPITokenDelete)
 }
 
 // Register the APIs for Network Utilities functions
