@@ -1,3 +1,9 @@
+# Docker Compose for standalone Zoraxy deployment
+#
+# Usage: docker compose up -d
+#
+# For cluster/swarm deployments, see docker-compose.swarm.yml
+
 services:
   zoraxy:
     image: zoraxydocker/zoraxy:latest
@@ -8,10 +14,49 @@ services:
       - 443:443
       - 8000:8000
     volumes:
-      - /path/to/zoraxy/config/:/opt/zoraxy/config/
-      - /path/to/zoraxy/plugin/:/opt/zoraxy/plugin/
+      - ${STACK_BINDMOUNTROOT:-/opt/zoraxy}/config/:/opt/zoraxy/config/
+      - ${STACK_BINDMOUNTROOT:-/opt/zoraxy}/plugin/:/opt/zoraxy/plugin/
       - /var/run/docker.sock:/var/run/docker.sock
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      FASTGEOIP: "true"
+      ###BEGIN GENERAL###
+      TZ: "${TZ:-America/New_York}"
+      FASTGEOIP: "${FASTGEOIP:-false}"
+      DB: "${DB:-auto}"
+      ENABLELOG: "${ENABLELOG:-true}"
+      ###END GENERAL###
+
+      ###BEGIN BOOTSTRAP###
+      ZORAXY_ADMIN_USER: "${ZORAXY_ADMIN_USER:-}"
+      ZORAXY_ADMIN_PASSWORD: "${ZORAXY_ADMIN_PASSWORD:-}"
+      ZORAXY_BOOTSTRAP_UI: "${ZORAXY_BOOTSTRAP_UI:-false}"
+      ###END BOOTSTRAP###
+
+      ###BEGIN CERTIFICATES###
+      AUTORENEW: "${AUTORENEW:-86400}"
+      EARLYRENEW: "${EARLYRENEW:-30}"
+      ###END CERTIFICATES###
+
+      ###BEGIN MDNS###
+      MDNS: "${MDNS:-true}"
+      MDNSNAME: "${MDNSNAME:-}"
+      ###END MDNS###
+
+      ###BEGIN SECURITY###
+      NOAUTH: "${NOAUTH:-false}"
+      SSHLB: "${SSHLB:-false}"
+      ###END SECURITY###
+
+      ###BEGIN WEBSERVER###
+      WEBFM: "${WEBFM:-true}"
+      WEBROOT: "${WEBROOT:-./www}"
+      ###END WEBSERVER###
+
+      ###BEGIN ZEROTIER###
+      ZEROTIER: "${ZEROTIER:-false}"
+      ###END ZEROTIER###
+
+      ###BEGIN PLUGINS###
+      PLUGIN: "${PLUGIN:-/opt/zoraxy/plugin/}"
+      ###END PLUGINS###
