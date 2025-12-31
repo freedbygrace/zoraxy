@@ -120,9 +120,8 @@ func main() {
 	// Create a entry mux to accept all management interface requests
 	entryMux := http.NewServeMux()
 
-	// Check if REST API is enabled (via flag or env var)
-	restAPIEnabled := *enableRestAPI || os.Getenv("ZORAXY_ENABLE_REST_API") == "true"
-	if restAPIEnabled {
+	// Check if REST API is enabled (via flag, env var, or database)
+	if isRestAPIEnabled() {
 		// Create REST API router with token authentication
 		restAPIRouter := NewAPIv1Router(apiTokenManager)
 		entryMux.Handle("/api/v1/", restAPIRouter) //For REST API access (token auth)

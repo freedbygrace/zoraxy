@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/pprof"
+	"os"
 
 	"imuslab.com/zoraxy/mod/acme/acmedns"
 	"imuslab.com/zoraxy/mod/acme/acmewizard"
@@ -433,4 +434,54 @@ func RegisterAPITokenAPIs(authRouter *auth.RouterDef) {
 	authRouter.HandleFunc("/api/tokens/toggle", apiTokenManager.HandleToggleToken)
 	authRouter.HandleFunc("/api/tokens/update", apiTokenManager.HandleUpdateToken)
 	authRouter.HandleFunc("/api/tokens/scopes", apiTokenManager.HandleGetScopes)
+	authRouter.HandleFunc("/api/restapi/toggle", HandleRestAPIToggle)
+}
+
+// HandleRestAPIToggle handles GET/POST for the REST API enabled state
+func HandleRestAPIToggle(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		// Return current state
+		enabled := isRestAPIEnabled()
+		js, _ := json.Marshal(enabled)
+		utils.SendJSONResponse(w, string(js))
+	case http.MethodPost:
+		newState, err := utils.PostBool(r, "enable")
+		if err != nil {
+			utils.SendErrorResponse(w, "invalid enable state")
+			return
+		}
+		err = sysdb.Write("settings", "restAPIEnabled", newState)
+		if err != nil {
+			utils.SendErrorResponse(w, "failed to save setting")
+			return
+		}
+		if newState {
+			SystemWideLogger.PrintAndLog("REST API", "REST API enabled", nil)
+		} else {
+			SystemWideLogger.PrintAndLog("REST API", "REST API disabled", nil)
+		}
+		utils.SendOK(w)
+	default:
+		http.Error(w, "405 - Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// isRestAPIEnabled checks if REST API is enabled (CLI flag > env var > database)
+func isRestAPIEnabled() bool {
+	// CLI flag takes priority
+	if *enableRestAPI {
+		return true
+	}
+	// Then env var
+	if os.Getenv("ZORAXY_ENABLE_REST_API") == "true" {
+		return true
+	}
+	// Finally, check database
+	var dbEnabled bool
+	if sysdb.KeyExists("settings", "restAPIEnabled") {
+		sysdb.Read("settings", "restAPIEnabled", &dbEnabled)
+		return dbEnabled
+	}
+	return false
 }

@@ -90,8 +90,8 @@
                     <a class="item" tag="utils">
                         <i class="simplistic paperclip icon"></i> Utilities
                     </a>
-                    <a class="item apitokens-menu" tag="apitokens" style="display:none;">
-                        <i class="simplistic key icon"></i> API Tokens
+                    <a class="item" tag="restapi">
+                        <i class="simplistic key icon"></i> Rest API
                     </a>
                     <a class="item" tag="cluster">
                         <i class="simplistic sitemap icon"></i> Cluster
@@ -162,8 +162,8 @@
                 <!-- Utilities -->
                 <div id="utils" class="functiontab" target="utils.html"></div>
 
-                <!-- API Tokens -->
-                <div id="apitokens" class="functiontab" target="apitokens.html"></div>
+                <!-- Rest API -->
+                <div id="restapi" class="functiontab" target="restapi.html"></div>
 
                 <!-- Cluster Replication -->
                 <div id="cluster" class="functiontab" target="cluster.html"></div>
@@ -322,20 +322,7 @@
 
                 //Initialize all table that is sortable
                 $('table').tablesort();
-
-                //Check if REST API is enabled and show/hide the API tokens menu
-                checkRestAPIStatus();
             });
-
-            function checkRestAPIStatus() {
-                $.get('/api/info/x', function(data) {
-                    if (data.RestAPIEnabled) {
-                        $('.apitokens-menu').show();
-                    } else {
-                        $('.apitokens-menu').hide();
-                    }
-                });
-            }
 
             //Function to open a plugin tab by its plugin id
             function openPluginTabByID(pluginID, tabID="pluginContextWindow"){

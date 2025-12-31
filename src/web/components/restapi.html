@@ -16,18 +16,40 @@
 </style>
 <div class="standardContainer">
     <div class="ui basic segment">
-        <h2>API Tokens</h2>
-        <p>Manage API tokens for external REST API access. Tokens can be used to authenticate requests to the <code>/api/v1/</code> endpoints.</p>
-        <div class="ui info message">
-            <div class="header">API Documentation</div>
-            <p>View the full API documentation at <a href="/api/v1/docs" target="_blank">/api/v1/docs</a></p>
+        <h2>Rest API</h2>
+        <p>Configure and manage the REST API for programmatic access to Zoraxy resources.</p>
+    </div>
+
+    <div class="ui divider"></div>
+
+    <!-- REST API Enable Toggle -->
+    <div class="ui segment">
+        <h3><i class="power icon"></i> API Status</h3>
+        <div class="ui toggle checkbox" id="restAPIToggle">
+            <input type="checkbox" id="restAPIEnabled">
+            <label>Enable REST API</label>
         </div>
+        <div class="ui message" id="restAPINote" style="margin-top: 1em;">
+            <p><i class="info circle icon"></i> The REST API can also be enabled via the <code>-enable-rest-api</code> flag or <code>ZORAXY_ENABLE_REST_API=true</code> environment variable.</p>
+        </div>
+        <div class="ui warning message" id="restartNote" style="display: none; margin-top: 1em;">
+            <p><i class="exclamation triangle icon"></i> <strong>Restart Required:</strong> Changes to REST API settings will take effect after restarting Zoraxy.</p>
+        </div>
+    </div>
+
+    <!-- API Documentation Link (only shown when enabled) -->
+    <div class="ui segment" id="apiDocsSection">
+        <h3><i class="book icon"></i> API Documentation</h3>
+        <p>View the full interactive API documentation with all available endpoints.</p>
+        <a href="/api/v1/docs" target="_blank" class="ui primary button">
+            <i class="external alternate icon"></i> Open API Documentation
+        </a>
     </div>
 
     <div class="ui divider"></div>
 
     <!-- Create New Token Section -->
-    <div class="ui segment">
+    <div class="ui segment" id="createTokenSection">
         <h3><i class="plus icon"></i> Create New Token</h3>
         <form class="ui form" id="createTokenForm">
             <div class="field">
@@ -102,7 +124,7 @@
     <div class="ui divider"></div>
 
     <!-- Existing Tokens List -->
-    <div class="ui segment">
+    <div class="ui segment" id="tokensSection">
         <h3><i class="list icon"></i> Existing Tokens</h3>
         <button class="ui basic button" onclick="loadTokens()"><i class="refresh icon"></i> Refresh</button>
         <table class="ui celled table" id="tokensTable">
@@ -131,14 +153,52 @@
 <script>
     // Initialize on load
     $(document).ready(function() {
+        loadRestAPIStatus();
         loadTokens();
         $('.ui.checkbox').checkbox();
-        
+
         $('#createTokenForm').on('submit', function(e) {
             e.preventDefault();
             createToken();
         });
+
+        $('#restAPIEnabled').on('change', function() {
+            toggleRestAPI($(this).is(':checked'));
+        });
     });
+
+    function loadRestAPIStatus() {
+        $.get('/api/restapi/toggle', function(data) {
+            $('#restAPIEnabled').prop('checked', data);
+            $('#restAPIToggle').checkbox(data ? 'check' : 'uncheck');
+            updateUIState(data);
+        });
+    }
+
+    function toggleRestAPI(enabled) {
+        $.ajax({
+            url: '/api/restapi/toggle',
+            method: 'POST',
+            data: { enable: enabled },
+            success: function(response) {
+                if (response.error) {
+                    msgbox('Error: ' + response.error, false);
+                    return;
+                }
+                msgbox('REST API ' + (enabled ? 'enabled' : 'disabled') + '. Restart required.', true);
+                $('#restartNote').show();
+                updateUIState(enabled);
+            },
+            error: function(xhr) {
+                msgbox('Failed to update setting', false);
+            }
+        });
+    }
+
+    function updateUIState(enabled) {
+        // Always show all sections - they can create tokens even if API is currently disabled
+        // The restart note will remind them to restart
+    }
 
     function loadTokens() {
         $.get('/api/tokens/list', function(data) {
@@ -153,7 +213,7 @@
             $('#tokensList').html('<tr><td colspan="7" class="center aligned">No tokens found. Create one above.</td></tr>');
             return;
         }
-        
+
         let html = '';
         tokens.forEach(function(token) {
             let scopeBadges = token.Scopes.map(s => `<span class="ui tiny label scope-badge">${s}</span>`).join('');
@@ -189,12 +249,12 @@
         let expiry = $('input[name="expiry"]').val();
 
         if (!name) {
-            alert('Please enter a token name');
+            msgbox('Please enter a token name', false);
             return;
         }
 
         if (scopes.length === 0) {
-            alert('Please select at least one scope');
+            msgbox('Please select at least one scope', false);
             return;
         }
 
@@ -215,7 +275,7 @@
             data: JSON.stringify(data),
             success: function(response) {
                 if (response.error) {
-                    alert('Error: ' + response.error);
+                    msgbox('Error: ' + response.error, false);
                     return;
                 }
 
@@ -231,7 +291,7 @@
                 loadTokens();
             },
             error: function(xhr) {
-                alert('Failed to create token: ' + (xhr.responseJSON?.error || xhr.statusText));
+                msgbox('Failed to create token: ' + (xhr.responseJSON?.error || xhr.statusText), false);
             }
         });
     }
@@ -247,13 +307,14 @@
             data: { id: tokenId },
             success: function(response) {
                 if (response.error) {
-                    alert('Error: ' + response.error);
+                    msgbox('Error: ' + response.error, false);
                     return;
                 }
                 loadTokens();
+                msgbox('Token deleted', true);
             },
             error: function(xhr) {
-                alert('Failed to delete token: ' + (xhr.responseJSON?.error || xhr.statusText));
+                msgbox('Failed to delete token: ' + (xhr.responseJSON?.error || xhr.statusText), false);
             }
         });
     }
@@ -280,4 +341,5 @@
         return div.innerHTML;
     }
 </script>
+
 
