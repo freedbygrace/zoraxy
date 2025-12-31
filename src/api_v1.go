@@ -823,12 +823,36 @@ func (r *APIv1Router) deleteCert(w http.ResponseWriter, req *http.Request, domai
 
 // registerClusterRoutes registers cluster management endpoints
 func (r *APIv1Router) registerClusterRoutes() {
-	// Cluster status
-	r.mux.HandleFunc("/api/v1/cluster/status", r.middleware.RequireScope(apitoken.ScopeAdmin, r.handleClusterStatus))
-	// Cluster config
-	r.mux.HandleFunc("/api/v1/cluster/config", r.middleware.RequireScope(apitoken.ScopeAdmin, r.handleClusterConfig))
-	// Cluster peers
-	r.mux.HandleFunc("/api/v1/cluster/peers", r.middleware.RequireScope(apitoken.ScopeAdmin, r.handleClusterPeers))
+	// Cluster status (read-only)
+	r.mux.HandleFunc("/api/v1/cluster/status", r.middleware.RequireScope(apitoken.ScopeClusterRead, r.handleClusterStatus))
+	// Cluster config (read/write based on method)
+	r.mux.HandleFunc("/api/v1/cluster/config", r.handleClusterConfigWithScope)
+	// Cluster peers (read/write based on method)
+	r.mux.HandleFunc("/api/v1/cluster/peers", r.handleClusterPeersWithScope)
+}
+
+// handleClusterConfigWithScope routes to the appropriate scope based on method
+func (r *APIv1Router) handleClusterConfigWithScope(w http.ResponseWriter, req *http.Request) {
+	switch req.Method {
+	case http.MethodGet:
+		r.middleware.RequireScope(apitoken.ScopeClusterRead, r.handleClusterConfig)(w, req)
+	case http.MethodPut, http.MethodPost:
+		r.middleware.RequireScope(apitoken.ScopeClusterWrite, r.handleClusterConfig)(w, req)
+	default:
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+	}
+}
+
+// handleClusterPeersWithScope routes to the appropriate scope based on method
+func (r *APIv1Router) handleClusterPeersWithScope(w http.ResponseWriter, req *http.Request) {
+	switch req.Method {
+	case http.MethodGet:
+		r.middleware.RequireScope(apitoken.ScopeClusterRead, r.handleClusterPeers)(w, req)
+	case http.MethodPost, http.MethodDelete:
+		r.middleware.RequireScope(apitoken.ScopeClusterWrite, r.handleClusterPeers)(w, req)
+	default:
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+	}
 }
 
 // handleClusterStatus returns the current cluster status

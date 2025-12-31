@@ -63,6 +63,7 @@
             <div class="field">
                 <label>Scopes</label>
                 <div class="ui segment">
+                    <p><strong>Proxy Endpoints:</strong></p>
                     <div class="ui checkbox" style="margin-right: 1em;">
                         <input type="checkbox" name="scope" value="proxy:read">
                         <label>proxy:read</label>
@@ -71,6 +72,18 @@
                         <input type="checkbox" name="scope" value="proxy:write">
                         <label>proxy:write</label>
                     </div>
+                    <br><br>
+                    <p><strong>Virtual Directories:</strong></p>
+                    <div class="ui checkbox" style="margin-right: 1em;">
+                        <input type="checkbox" name="scope" value="vdir:read">
+                        <label>vdir:read</label>
+                    </div>
+                    <div class="ui checkbox" style="margin-right: 1em;">
+                        <input type="checkbox" name="scope" value="vdir:write">
+                        <label>vdir:write</label>
+                    </div>
+                    <br><br>
+                    <p><strong>Certificates:</strong></p>
                     <div class="ui checkbox" style="margin-right: 1em;">
                         <input type="checkbox" name="scope" value="cert:read">
                         <label>cert:read</label>
@@ -79,6 +92,8 @@
                         <input type="checkbox" name="scope" value="cert:write">
                         <label>cert:write</label>
                     </div>
+                    <br><br>
+                    <p><strong>Redirects:</strong></p>
                     <div class="ui checkbox" style="margin-right: 1em;">
                         <input type="checkbox" name="scope" value="redirect:read">
                         <label>redirect:read</label>
@@ -87,6 +102,8 @@
                         <input type="checkbox" name="scope" value="redirect:write">
                         <label>redirect:write</label>
                     </div>
+                    <br><br>
+                    <p><strong>Access Rules:</strong></p>
                     <div class="ui checkbox" style="margin-right: 1em;">
                         <input type="checkbox" name="scope" value="access:read">
                         <label>access:read</label>
@@ -94,6 +111,16 @@
                     <div class="ui checkbox" style="margin-right: 1em;">
                         <input type="checkbox" name="scope" value="access:write">
                         <label>access:write</label>
+                    </div>
+                    <br><br>
+                    <p><strong>Administrative:</strong></p>
+                    <div class="ui checkbox" style="margin-right: 1em;">
+                        <input type="checkbox" name="scope" value="cluster:read">
+                        <label>cluster:read</label>
+                    </div>
+                    <div class="ui checkbox" style="margin-right: 1em;">
+                        <input type="checkbox" name="scope" value="cluster:write">
+                        <label>cluster:write</label>
                     </div>
                     <div class="ui checkbox" style="margin-right: 1em;">
                         <input type="checkbox" name="scope" value="admin">
