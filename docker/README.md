@@ -119,7 +119,7 @@ Variables are the same as those in [Start Parameters](https://github.com/tobychu
 | `CLUSTER_SECRET` | `''` (String) | Shared secret for cluster peer authentication (use a strong random string). |
 | `CLUSTER_PEERS` | `''` (String) | Comma-separated list of peer URLs (e.g., `http://node2:8000,http://node3:8000`). |
 | `CLUSTER_SWARM` | `false` (Boolean) | Enable Docker Swarm auto-discovery for peers. |
-| `CLUSTER_SWARM_SERVICE` | `''` (String) | DNS name for Swarm service discovery (e.g., `tasks.zoraxy`). |
+| `CLUSTER_SWARM_SERVICE` | `''` (String) | DNS name for Swarm service discovery (e.g., `tasks.<stack-name>_<service-name>`). |
 | `CLUSTER_SWARM_PORT` | `8000` (Integer) | Port for Swarm peer communication. |
 | `CLUSTER_SWARM_SCHEME` | `http` (String) | Scheme for Swarm peer communication (`http` or `https`). |
 
@@ -160,11 +160,14 @@ environment:
   CLUSTER: "true"
   CLUSTER_SECRET: "your-secure-shared-secret"
   CLUSTER_SWARM: "true"
-  CLUSTER_SWARM_SERVICE: "tasks.zoraxy"
+  CLUSTER_SWARM_SERVICE: "tasks.EdgeLoadBalancer_zoraxy"
   ZORAXY_ADMIN_USER: "admin"
   ZORAXY_ADMIN_PASSWORD: "your-admin-password"
   ZORAXY_BOOTSTRAP_UI: "true"
 ```
+
+> [!NOTE]
+> The Swarm DNS name format is `tasks.<stack-name>_<service-name>`. For example, if you deploy with `docker stack deploy -c docker-compose.swarm.yml EdgeLoadBalancer`, the service name becomes `EdgeLoadBalancer_zoraxy` and the DNS lookup name is `tasks.EdgeLoadBalancer_zoraxy`.
 
 The `tasks.<service-name>` DNS name resolves to all container IPs in the service, enabling automatic peer discovery.
 

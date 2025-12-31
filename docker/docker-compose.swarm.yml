@@ -1,16 +1,15 @@
 # Docker Swarm deployment for Zoraxy with cluster replication
-# 
-# Deploy with: docker stack deploy -c docker-compose.swarm.yml zoraxy
+#
+# Deploy with: docker stack deploy -c docker-compose.swarm.yml EdgeLoadBalancer
 #
 # This configuration enables:
 # - 3 replica instances for high availability
-# - Automatic peer discovery via DNS (tasks.zoraxy)
+# - Automatic peer discovery via DNS (tasks.EdgeLoadBalancer_zoraxy)
 # - Cluster replication of proxy rules, certificates, and access rules
 # - Bootstrap UI accessible at https://<node-ip>/admin/
+# - Host-mode ports for direct client IP visibility
 #
-# Before deploying, create the required secrets:
-#   echo "your-cluster-secret" | docker secret create zoraxy_cluster_secret -
-#   echo "your-admin-password" | docker secret create zoraxy_admin_password -
+# Environment variables can be set in a .env file or passed directly
 
 version: "3.8"
 
@@ -30,46 +29,53 @@ services:
         max_attempts: 3
       placement:
         constraints:
-          - node.role == manager
+          - node.role == worker
     ports:
+      # Host mode for direct client IP visibility (no NAT through ingress)
       - target: 80
         published: 80
         protocol: tcp
-        mode: ingress
+        mode: host
       - target: 443
         published: 443
         protocol: tcp
-        mode: ingress
-      # Management port - consider removing in production
-      # - target: 8000
-      #   published: 8000
-      #   protocol: tcp
-      #   mode: host
+        mode: host
     volumes:
       - zoraxy-config:/opt/zoraxy/config/
       - zoraxy-plugins:/opt/zoraxy/plugin/
+      # Shared certificate storage (alternative to cluster replication)
+      # Uncomment to use NFS or other shared storage for certificates:
+      # - type: volume
+      #   source: zoraxy-certs
+      #   target: /opt/zoraxy/config/certs
+      #   volume:
+      #     driver: local
+      #     driver_opts:
+      #       type: nfs
+      #       o: addr=nfs-server.example.com,rw,nfsvers=4
+      #       device: ":/exports/zoraxy-certs"
     networks:
       - zoraxy-net
     environment:
       # General settings
       FASTGEOIP: "true"
       TZ: "${TZ:-Etc/UTC}"
-      
+
       # Cluster settings - enable Swarm auto-discovery
       CLUSTER: "true"
-      CLUSTER_SECRET_FILE: /run/secrets/zoraxy_cluster_secret
+      CLUSTER_SECRET: "${CLUSTER_SECRET}"
       CLUSTER_SWARM: "true"
-      CLUSTER_SWARM_SERVICE: "tasks.zoraxy"
+      # DNS format: tasks.<stack-name>_<service-name>
+      # If deploying with: docker stack deploy -c docker-compose.swarm.yml EdgeLoadBalancer
+      # The service becomes EdgeLoadBalancer_zoraxy, so use tasks.EdgeLoadBalancer_zoraxy
+      CLUSTER_SWARM_SERVICE: "tasks.EdgeLoadBalancer_zoraxy"
       CLUSTER_SWARM_PORT: "8000"
       CLUSTER_SWARM_SCHEME: "http"
-      
+
       # Bootstrap settings for headless deployment
       ZORAXY_ADMIN_USER: "${ZORAXY_ADMIN_USER:-admin}"
-      ZORAXY_ADMIN_PASSWORD_FILE: /run/secrets/zoraxy_admin_password
+      ZORAXY_ADMIN_PASSWORD: "${ZORAXY_ADMIN_PASSWORD}"
       ZORAXY_BOOTSTRAP_UI: "true"
-    secrets:
-      - zoraxy_cluster_secret
-      - zoraxy_admin_password
 
 networks:
   zoraxy-net:
@@ -81,10 +87,4 @@ volumes:
     driver: local
   zoraxy-plugins:
     driver: local
-
-secrets:
-  zoraxy_cluster_secret:
-    external: true
-  zoraxy_admin_password:
-    external: true
 
