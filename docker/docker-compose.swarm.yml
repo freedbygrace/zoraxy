@@ -3,11 +3,17 @@
 # Deploy with: docker stack deploy -c docker-compose.swarm.yml EdgeLoadBalancer
 #
 # This configuration enables:
-# - 3 replica instances for high availability
+# - Global service (one instance per labeled node)
 # - Automatic peer discovery via DNS (tasks.EdgeLoadBalancer_zoraxy)
 # - Cluster replication of proxy rules, certificates, and access rules
 # - Bootstrap UI accessible at https://<node-ip>/admin/
 # - Host-mode ports for direct client IP visibility
+#
+# Prerequisites:
+# 1. Label nodes that should run EdgeLoadBalancer:
+#    docker node update --label-add EdgeLoadBalancer=true <node-name>
+#
+# 2. Create .env file from .env.example and set CLUSTER_SECRET and ZORAXY_ADMIN_PASSWORD
 #
 # Environment variables can be set in a .env file or passed directly
 
@@ -17,8 +23,7 @@ services:
   zoraxy:
     image: zoraxydocker/zoraxy:latest
     deploy:
-      mode: replicated
-      replicas: 3
+      mode: global
       update_config:
         parallelism: 1
         delay: 30s
@@ -30,6 +35,8 @@ services:
       placement:
         constraints:
           - node.role == worker
+          - node.platform.os == linux
+          - node.labels.EdgeLoadBalancer == true
     ports:
       # Host mode for direct client IP visibility (no NAT through ingress)
       - target: 80
@@ -41,19 +48,12 @@ services:
         protocol: tcp
         mode: host
     volumes:
-      - zoraxy-config:/opt/zoraxy/config/
-      - zoraxy-plugins:/opt/zoraxy/plugin/
+      - ${STACK_BINDMOUNTROOT:-/opt/zoraxy}/config/:/opt/zoraxy/config/
+      - ${STACK_BINDMOUNTROOT:-/opt/zoraxy}/plugin/:/opt/zoraxy/plugin/
       # Shared certificate storage (alternative to cluster replication)
-      # Uncomment to use NFS or other shared storage for certificates:
-      # - type: volume
-      #   source: zoraxy-certs
-      #   target: /opt/zoraxy/config/certs
-      #   volume:
-      #     driver: local
-      #     driver_opts:
-      #       type: nfs
-      #       o: addr=nfs-server.example.com,rw,nfsvers=4
-      #       device: ":/exports/zoraxy-certs"
+      # Mount a shared filesystem (NFS, GlusterFS, etc.) to the host first,
+      # then bind mount it here. Uncomment to use:
+      # - ${STACK_BINDMOUNTROOT:-/opt/zoraxy}/certs/:/opt/zoraxy/config/certs/
     networks:
       - zoraxy-net
     environment:
@@ -74,7 +74,7 @@ services:
       # DNS format: tasks.<stack-name>_<service-name>
       # Deploy with: docker stack deploy -c docker-compose.swarm.yml EdgeLoadBalancer
       CLUSTER_SWARM: "${CLUSTER_SWARM:-true}"
-      CLUSTER_SWARM_SERVICE: "${CLUSTER_SWARM_SERVICE:-tasks.EdgeLoadBalancer_zoraxy}"
+      CLUSTER_SWARM_SERVICE: "${CLUSTER_SWARM_SERVICE:-tasks.EdgeLoadBalancer_Zoraxy}"
       CLUSTER_SWARM_PORT: "${CLUSTER_SWARM_PORT:-8000}"
       CLUSTER_SWARM_SCHEME: "${CLUSTER_SWARM_SCHEME:-http}"
       ###END SWARM###
@@ -117,10 +117,3 @@ networks:
   zoraxy-net:
     driver: overlay
     attachable: true
-
-volumes:
-  zoraxy-config:
-    driver: local
-  zoraxy-plugins:
-    driver: local
-
