@@ -47,6 +47,7 @@ func NewAPIv1Router(tokenManager *apitoken.TokenManager) *APIv1Router {
 	router.registerVdirRoutes()
 	router.registerAccessRuleRoutes()
 	router.registerRedirectRoutes()
+	router.registerCertRoutes()
 
 	return router
 }
@@ -703,4 +704,95 @@ func (r *APIv1Router) deleteRedirect(w http.ResponseWriter, req *http.Request, r
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "deleted": redirectURL})
+}
+
+// ==================== Certificates REST API ====================
+
+// registerCertRoutes registers certificate CRUD endpoints
+func (r *APIv1Router) registerCertRoutes() {
+	r.mux.HandleFunc("/api/v1/certs", r.middleware.RequireScope(apitoken.ScopeCertRead, r.handleCerts))
+	r.mux.HandleFunc("/api/v1/certs/", r.handleCertByDomain)
+}
+
+// handleCerts handles GET /api/v1/certs - list all certificates
+func (r *APIv1Router) handleCerts(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	domains, err := tlsCertManager.ListCertDomains()
+	if err != nil {
+		utils.SendErrorResponse(w, "failed to list certificates: "+err.Error())
+		return
+	}
+
+	type CertInfo struct {
+		Domain string `json:"domain"`
+	}
+
+	certs := []CertInfo{}
+	for _, domain := range domains {
+		certs = append(certs, CertInfo{Domain: domain})
+	}
+
+	json.NewEncoder(w).Encode(certs)
+}
+
+// handleCertByDomain handles single certificate operations
+func (r *APIv1Router) handleCertByDomain(w http.ResponseWriter, req *http.Request) {
+	domain := strings.TrimPrefix(req.URL.Path, "/api/v1/certs/")
+	if domain == "" {
+		http.Error(w, `{"error":"domain required"}`, http.StatusBadRequest)
+		return
+	}
+
+	switch req.Method {
+	case http.MethodGet:
+		r.middleware.RequireScope(apitoken.ScopeCertRead, func(w http.ResponseWriter, req *http.Request) {
+			r.getCert(w, req, domain)
+		})(w, req)
+	case http.MethodDelete:
+		r.middleware.RequireScope(apitoken.ScopeCertWrite, func(w http.ResponseWriter, req *http.Request) {
+			r.deleteCert(w, req, domain)
+		})(w, req)
+	default:
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+	}
+}
+
+// getCert retrieves certificate info for a domain
+func (r *APIv1Router) getCert(w http.ResponseWriter, req *http.Request, domain string) {
+	// Check if certificate exists
+	domains, err := tlsCertManager.ListCertDomains()
+	if err != nil {
+		utils.SendErrorResponse(w, "failed to list certificates: "+err.Error())
+		return
+	}
+
+	found := false
+	for _, d := range domains {
+		if d == domain {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		http.Error(w, `{"error":"certificate not found"}`, http.StatusNotFound)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{"domain": domain, "status": "exists"})
+}
+
+// deleteCert deletes a certificate
+func (r *APIv1Router) deleteCert(w http.ResponseWriter, req *http.Request, domain string) {
+	if err := tlsCertManager.RemoveCert(domain); err != nil {
+		utils.SendErrorResponse(w, "failed to delete certificate: "+err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "deleted": domain})
 }
