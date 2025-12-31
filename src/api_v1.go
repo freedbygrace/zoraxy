@@ -43,6 +43,7 @@ func NewAPIv1Router(tokenManager *apitoken.TokenManager) *APIv1Router {
 	}
 
 	// Register routes
+	router.registerStatusRoutes()
 	router.registerProxyRoutes()
 	router.registerVdirRoutes()
 	router.registerAccessRuleRoutes()
@@ -57,6 +58,27 @@ func (r *APIv1Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// Set JSON content type for all API responses
 	w.Header().Set("Content-Type", "application/json")
 	r.mux.ServeHTTP(w, req)
+}
+
+// registerStatusRoutes registers status/health endpoints
+func (r *APIv1Router) registerStatusRoutes() {
+	// Status endpoint - no auth required for basic health check
+	r.mux.HandleFunc("/api/v1/status", r.handleStatus)
+}
+
+// handleStatus handles GET /api/v1/status - returns system status
+func (r *APIv1Router) handleStatus(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	status := map[string]interface{}{
+		"status":  "ok",
+		"version": SYSTEM_VERSION,
+	}
+
+	json.NewEncoder(w).Encode(status)
 }
 
 // registerProxyRoutes registers proxy CRUD endpoints
