@@ -18,6 +18,7 @@ import (
 	"imuslab.com/zoraxy/mod/access"
 	"imuslab.com/zoraxy/mod/acme"
 	"imuslab.com/zoraxy/mod/auth"
+	"imuslab.com/zoraxy/mod/auth/apitoken"
 	"imuslab.com/zoraxy/mod/auth/sso/forward"
 	"imuslab.com/zoraxy/mod/database"
 	"imuslab.com/zoraxy/mod/dockerux"
@@ -177,6 +178,9 @@ var (
 
 	//Plugin auth related
 	pluginApiKeyManager *auth.APIKeyManager //API key manager for plugin authentication
+
+	//API token manager for external REST API access
+	apiTokenManager *apitoken.TokenManager //API token manager for REST API authentication
 
 	//Authentication Provider
 	forwardAuthRouter *forward.AuthRouter  // Forward Auth router for Authelia/Authentik/etc authentication

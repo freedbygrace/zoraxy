@@ -17,6 +17,7 @@ import (
 	"imuslab.com/zoraxy/mod/access"
 	"imuslab.com/zoraxy/mod/acme"
 	"imuslab.com/zoraxy/mod/auth"
+	"imuslab.com/zoraxy/mod/auth/apitoken"
 	"imuslab.com/zoraxy/mod/auth/sso/forward"
 	"imuslab.com/zoraxy/mod/database"
 	"imuslab.com/zoraxy/mod/database/dbinc"
@@ -156,6 +157,13 @@ func startupSequence() {
 
 	// Create an API key manager for plugin authentication
 	pluginApiKeyManager = auth.NewAPIKeyManager()
+
+	// Create an API token manager for external REST API access
+	apiTokenManager, err = apitoken.NewTokenManager(sysdb)
+	if err != nil {
+		log.Fatal("Failed to initialize API token manager: " + err.Error())
+	}
+	SystemWideLogger.PrintAndLog("auth", "API token manager initialized", nil)
 
 	//Create a TLS certificate manager
 	tlsCertManager, err = tlscert.NewManager(CONF_CERT_STORE, SystemWideLogger)

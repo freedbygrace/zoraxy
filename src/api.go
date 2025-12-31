@@ -417,4 +417,18 @@ func initAPIs(targetMux *http.ServeMux) {
 
 	//Debug
 	authRouter.HandleFunc("/api/info/pprof", pprof.Index)
+
+	//API Token Management (for external REST API access)
+	RegisterAPITokenAPIs(authRouter)
+}
+
+// RegisterAPITokenAPIs registers endpoints for API token management
+// These endpoints are protected by session auth (for UI/admin access)
+func RegisterAPITokenAPIs(authRouter *auth.RouterDef) {
+	authRouter.HandleFunc("/api/tokens/create", apiTokenManager.HandleCreateToken)
+	authRouter.HandleFunc("/api/tokens/list", apiTokenManager.HandleListTokens)
+	authRouter.HandleFunc("/api/tokens/delete", apiTokenManager.HandleDeleteToken)
+	authRouter.HandleFunc("/api/tokens/toggle", apiTokenManager.HandleToggleToken)
+	authRouter.HandleFunc("/api/tokens/update", apiTokenManager.HandleUpdateToken)
+	authRouter.HandleFunc("/api/tokens/scopes", apiTokenManager.HandleGetScopes)
 }
