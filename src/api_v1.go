@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strings"
 
+	"imuslab.com/zoraxy/mod/access"
 	"imuslab.com/zoraxy/mod/auth/apitoken"
 	"imuslab.com/zoraxy/mod/dynamicproxy"
 	"imuslab.com/zoraxy/mod/dynamicproxy/loadbalance"
@@ -44,6 +45,8 @@ func NewAPIv1Router(tokenManager *apitoken.TokenManager) *APIv1Router {
 	// Register routes
 	router.registerProxyRoutes()
 	router.registerVdirRoutes()
+	router.registerAccessRuleRoutes()
+	router.registerRedirectRoutes()
 
 	return router
 }
@@ -435,3 +438,269 @@ func (r *APIv1Router) deleteVdir(w http.ResponseWriter, req *http.Request, proxy
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "deleted": vdirPath})
 }
 
+// ==================== Access Rules REST API ====================
+
+// registerAccessRuleRoutes registers access rule CRUD endpoints
+func (r *APIv1Router) registerAccessRuleRoutes() {
+	r.mux.HandleFunc("/api/v1/access-rules", r.middleware.RequireScope(apitoken.ScopeAccessRead, r.handleAccessRules))
+	r.mux.HandleFunc("/api/v1/access-rules/", r.handleAccessRuleByID)
+}
+
+// handleAccessRules handles GET /api/v1/access-rules - list all access rules
+func (r *APIv1Router) handleAccessRules(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	rules := accessController.ListAllAccessRules()
+	json.NewEncoder(w).Encode(rules)
+}
+
+// handleAccessRuleByID handles single access rule operations
+func (r *APIv1Router) handleAccessRuleByID(w http.ResponseWriter, req *http.Request) {
+	ruleID := strings.TrimPrefix(req.URL.Path, "/api/v1/access-rules/")
+	if ruleID == "" {
+		http.Error(w, `{"error":"rule ID required"}`, http.StatusBadRequest)
+		return
+	}
+
+	switch req.Method {
+	case http.MethodGet:
+		r.middleware.RequireScope(apitoken.ScopeAccessRead, func(w http.ResponseWriter, req *http.Request) {
+			r.getAccessRule(w, req, ruleID)
+		})(w, req)
+	case http.MethodPost, http.MethodPut:
+		r.middleware.RequireScope(apitoken.ScopeAccessWrite, func(w http.ResponseWriter, req *http.Request) {
+			r.upsertAccessRule(w, req, ruleID)
+		})(w, req)
+	case http.MethodDelete:
+		r.middleware.RequireScope(apitoken.ScopeAccessWrite, func(w http.ResponseWriter, req *http.Request) {
+			r.deleteAccessRule(w, req, ruleID)
+		})(w, req)
+	default:
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+	}
+}
+
+// getAccessRule retrieves a single access rule
+func (r *APIv1Router) getAccessRule(w http.ResponseWriter, req *http.Request, ruleID string) {
+	rule, err := accessController.GetAccessRuleByID(ruleID)
+	if err != nil {
+		http.Error(w, `{"error":"access rule not found"}`, http.StatusNotFound)
+		return
+	}
+	json.NewEncoder(w).Encode(rule)
+}
+
+// AccessRuleCreateRequest is the request body for creating/updating an access rule
+type AccessRuleCreateRequest struct {
+	Name             string `json:"name"`
+	Desc             string `json:"desc"`
+	BlacklistEnabled bool   `json:"blacklistEnabled"`
+	WhitelistEnabled bool   `json:"whitelistEnabled"`
+}
+
+// upsertAccessRule creates or updates an access rule
+func (r *APIv1Router) upsertAccessRule(w http.ResponseWriter, req *http.Request, ruleID string) {
+	var ruleReq AccessRuleCreateRequest
+	if err := json.NewDecoder(req.Body).Decode(&ruleReq); err != nil {
+		utils.SendErrorResponse(w, "invalid request body: "+err.Error())
+		return
+	}
+
+	// Check if rule exists
+	existingRule, _ := accessController.GetAccessRuleByID(ruleID)
+	if existingRule != nil {
+		// Update existing
+		if err := accessController.UpdateAccessRule(ruleID, ruleReq.Name, ruleReq.Desc); err != nil {
+			utils.SendErrorResponse(w, "failed to update access rule: "+err.Error())
+			return
+		}
+		// Update enabled flags
+		existingRule.ToggleBlacklist(ruleReq.BlacklistEnabled)
+		existingRule.ToggleWhitelist(ruleReq.WhitelistEnabled)
+	} else {
+		// Create new with the provided ID
+		newRule := &access.AccessRule{
+			ID:               ruleID,
+			Name:             ruleReq.Name,
+			Desc:             ruleReq.Desc,
+			BlacklistEnabled: ruleReq.BlacklistEnabled,
+			WhitelistEnabled: ruleReq.WhitelistEnabled,
+		}
+		if err := accessController.AddNewAccessRule(newRule); err != nil {
+			utils.SendErrorResponse(w, "failed to create access rule: "+err.Error())
+			return
+		}
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "id": ruleID})
+}
+
+// deleteAccessRule deletes an access rule
+func (r *APIv1Router) deleteAccessRule(w http.ResponseWriter, req *http.Request, ruleID string) {
+	if ruleID == "default" {
+		http.Error(w, `{"error":"default access rule cannot be deleted"}`, http.StatusBadRequest)
+		return
+	}
+
+	if err := accessController.RemoveAccessRuleByID(ruleID); err != nil {
+		utils.SendErrorResponse(w, "failed to delete access rule: "+err.Error())
+		return
+	}
+
+	// Broadcast to cluster
+	if clusterManager != nil {
+		clusterManager.BroadcastAccessRuleDelete(req.Context(), ruleID)
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "deleted": ruleID})
+}
+
+// ==================== Redirects REST API ====================
+
+// registerRedirectRoutes registers redirect rule CRUD endpoints
+func (r *APIv1Router) registerRedirectRoutes() {
+	r.mux.HandleFunc("/api/v1/redirects", r.handleRedirects)
+	r.mux.HandleFunc("/api/v1/redirects/", r.handleRedirectByURL)
+}
+
+// handleRedirects handles /api/v1/redirects
+func (r *APIv1Router) handleRedirects(w http.ResponseWriter, req *http.Request) {
+	switch req.Method {
+	case http.MethodGet:
+		r.middleware.RequireScope(apitoken.ScopeRedirectRead, r.listRedirects)(w, req)
+	case http.MethodPost:
+		r.middleware.RequireScope(apitoken.ScopeRedirectWrite, r.createRedirect)(w, req)
+	default:
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+	}
+}
+
+// listRedirects returns all redirect rules
+func (r *APIv1Router) listRedirects(w http.ResponseWriter, req *http.Request) {
+	rules := redirectTable.GetAllRedirectRules()
+	json.NewEncoder(w).Encode(rules)
+}
+
+// RedirectCreateRequest is the request body for creating/updating a redirect
+type RedirectCreateRequest struct {
+	RedirectURL       string `json:"redirectUrl"`
+	TargetURL         string `json:"targetUrl"`
+	ForwardChildpath  bool   `json:"forwardChildpath"`
+	StatusCode        int    `json:"statusCode"`
+	RequireExactMatch bool   `json:"requireExactMatch"`
+}
+
+// createRedirect creates a new redirect rule
+func (r *APIv1Router) createRedirect(w http.ResponseWriter, req *http.Request) {
+	var redirReq RedirectCreateRequest
+	if err := json.NewDecoder(req.Body).Decode(&redirReq); err != nil {
+		utils.SendErrorResponse(w, "invalid request body: "+err.Error())
+		return
+	}
+
+	if redirReq.RedirectURL == "" || redirReq.TargetURL == "" {
+		utils.SendErrorResponse(w, "redirectUrl and targetUrl are required")
+		return
+	}
+
+	if redirReq.StatusCode == 0 {
+		redirReq.StatusCode = 307
+	}
+
+	if err := redirectTable.AddRedirectRule(redirReq.RedirectURL, redirReq.TargetURL,
+		redirReq.ForwardChildpath, redirReq.StatusCode, redirReq.RequireExactMatch); err != nil {
+		utils.SendErrorResponse(w, "failed to create redirect: "+err.Error())
+		return
+	}
+
+	// Broadcast to cluster
+	if clusterManager != nil {
+		clusterManager.BroadcastRedirectUpsert(req.Context(), redirReq.RedirectURL, redirReq.TargetURL,
+			redirReq.ForwardChildpath, redirReq.StatusCode, redirReq.RequireExactMatch)
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "redirectUrl": redirReq.RedirectURL})
+}
+
+// handleRedirectByURL handles single redirect operations
+func (r *APIv1Router) handleRedirectByURL(w http.ResponseWriter, req *http.Request) {
+	// URL-decode the path after /api/v1/redirects/
+	redirectURL := strings.TrimPrefix(req.URL.Path, "/api/v1/redirects/")
+	if redirectURL == "" {
+		http.Error(w, `{"error":"redirect URL required"}`, http.StatusBadRequest)
+		return
+	}
+
+	switch req.Method {
+	case http.MethodPut:
+		r.middleware.RequireScope(apitoken.ScopeRedirectWrite, func(w http.ResponseWriter, req *http.Request) {
+			r.updateRedirect(w, req, redirectURL)
+		})(w, req)
+	case http.MethodDelete:
+		r.middleware.RequireScope(apitoken.ScopeRedirectWrite, func(w http.ResponseWriter, req *http.Request) {
+			r.deleteRedirect(w, req, redirectURL)
+		})(w, req)
+	default:
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+	}
+}
+
+// updateRedirect updates an existing redirect rule
+func (r *APIv1Router) updateRedirect(w http.ResponseWriter, req *http.Request, redirectURL string) {
+	var redirReq RedirectCreateRequest
+	if err := json.NewDecoder(req.Body).Decode(&redirReq); err != nil {
+		utils.SendErrorResponse(w, "invalid request body: "+err.Error())
+		return
+	}
+
+	if redirReq.TargetURL == "" {
+		utils.SendErrorResponse(w, "targetUrl is required")
+		return
+	}
+
+	if redirReq.StatusCode == 0 {
+		redirReq.StatusCode = 307
+	}
+
+	newRedirectURL := redirReq.RedirectURL
+	if newRedirectURL == "" {
+		newRedirectURL = redirectURL
+	}
+
+	if err := redirectTable.EditRedirectRule(redirectURL, newRedirectURL, redirReq.TargetURL,
+		redirReq.ForwardChildpath, redirReq.StatusCode, redirReq.RequireExactMatch); err != nil {
+		utils.SendErrorResponse(w, "failed to update redirect: "+err.Error())
+		return
+	}
+
+	// Broadcast to cluster
+	if clusterManager != nil {
+		clusterManager.BroadcastRedirectUpsert(req.Context(), newRedirectURL, redirReq.TargetURL,
+			redirReq.ForwardChildpath, redirReq.StatusCode, redirReq.RequireExactMatch)
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "redirectUrl": newRedirectURL})
+}
+
+// deleteRedirect deletes a redirect rule
+func (r *APIv1Router) deleteRedirect(w http.ResponseWriter, req *http.Request, redirectURL string) {
+	if err := redirectTable.DeleteRedirectRule(redirectURL); err != nil {
+		utils.SendErrorResponse(w, "failed to delete redirect: "+err.Error())
+		return
+	}
+
+	// Broadcast to cluster
+	if clusterManager != nil {
+		clusterManager.BroadcastRedirectDelete(req.Context(), redirectURL)
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "deleted": redirectURL})
+}
