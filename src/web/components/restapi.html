@@ -22,22 +22,25 @@
 
     <div class="ui divider"></div>
 
-    <!-- REST API Enable Toggle -->
+    <!-- REST API Settings -->
     <div class="ui segment">
-        <h3><i class="power icon"></i> API Status</h3>
-        <div class="ui toggle checkbox" id="restAPIToggle">
-            <input type="checkbox" id="restAPIEnabled">
-            <label>Enable REST API</label>
+        <h3><i class="power icon"></i> API Settings</h3>
+        <div class="field" style="margin-bottom: 1em;">
+            <div class="ui toggle checkbox" id="restAPIToggle">
+                <input type="checkbox" id="restAPIEnabled">
+                <label>Enable REST API</label>
+            </div>
         </div>
-        <div class="ui message" id="restAPINote" style="margin-top: 1em;">
-            <p><i class="info circle icon"></i> The REST API can also be enabled via the <code>-enable-rest-api</code> flag or <code>ZORAXY_ENABLE_REST_API=true</code> environment variable.</p>
-        </div>
-        <div class="ui warning message" id="restartNote" style="display: none; margin-top: 1em;">
-            <p><i class="exclamation triangle icon"></i> <strong>Restart Required:</strong> Changes to REST API settings will take effect after restarting Zoraxy.</p>
+        <div class="field">
+            <div class="ui toggle checkbox" id="restAPIDocsToggle">
+                <input type="checkbox" id="restAPIDocsEnabled">
+                <label>Enable API Documentation</label>
+            </div>
+            <small class="ui grey text" style="margin-left: 2em;">When disabled, /api/v1/docs returns 404</small>
         </div>
     </div>
 
-    <!-- API Documentation Link (only shown when enabled) -->
+    <!-- API Documentation Link -->
     <div class="ui segment" id="apiDocsSection">
         <h3><i class="book icon"></i> API Documentation</h3>
         <p>View the full interactive API documentation with all available endpoints.</p>
@@ -136,18 +139,6 @@
         </form>
     </div>
 
-    <!-- New Token Display (shown after creation) -->
-    <div class="ui green segment" id="newTokenDisplay" style="display: none;">
-        <h3><i class="check circle icon"></i> Token Created Successfully</h3>
-        <div class="ui warning message">
-            <div class="header">Important: Copy your token now!</div>
-            <p>This is the only time you will see this token. Make sure to copy it and store it securely.</p>
-        </div>
-        <div class="token-display" id="newTokenValue"></div>
-        <button class="ui button" onclick="copyNewToken()"><i class="copy icon"></i> Copy Token</button>
-        <button class="ui button" onclick="$('#newTokenDisplay').hide();"><i class="close icon"></i> Dismiss</button>
-    </div>
-
     <div class="ui divider"></div>
 
     <!-- Existing Tokens List -->
@@ -177,6 +168,30 @@
     </div>
 </div>
 
+<!-- Token Created Modal -->
+<div class="ui modal" id="tokenCreatedModal">
+    <div class="header">
+        <i class="green check circle icon"></i> API Token Created
+    </div>
+    <div class="content">
+        <div class="ui warning message">
+            <div class="header"><i class="exclamation triangle icon"></i> Copy your token now!</div>
+            <p>This is the only time you will see this token. Store it securely - it cannot be retrieved later.</p>
+        </div>
+        <div class="ui fluid action input">
+            <input type="text" id="newTokenValue" readonly style="font-family: monospace;">
+            <button class="ui teal button" onclick="copyNewToken()">
+                <i class="copy icon"></i> Copy
+            </button>
+        </div>
+    </div>
+    <div class="actions">
+        <button class="ui green approve button" onclick="$('#tokenCreatedModal').modal('hide');">
+            <i class="checkmark icon"></i> Done
+        </button>
+    </div>
+</div>
+
 <script>
     // Initialize on load
     $(document).ready(function() {
@@ -192,18 +207,24 @@
         $('#restAPIEnabled').on('change', function() {
             toggleRestAPI($(this).is(':checked'));
         });
+
+        $('#restAPIDocsEnabled').on('change', function() {
+            toggleRestAPIDocs($(this).is(':checked'));
+        });
     });
 
     function loadRestAPIStatus() {
         $.get('/api/restapi/toggle', function(data) {
-            $('#restAPIEnabled').prop('checked', data);
-            $('#restAPIToggle').checkbox(data ? 'check' : 'uncheck');
-            updateUIState(data);
+            $('#restAPIEnabled').prop('checked', data.enabled);
+            $('#restAPIToggle').checkbox(data.enabled ? 'check' : 'uncheck');
+            $('#restAPIDocsEnabled').prop('checked', data.docsEnabled);
+            $('#restAPIDocsToggle').checkbox(data.docsEnabled ? 'check' : 'uncheck');
+            updateUIState(data.enabled, data.docsEnabled);
         });
     }
 
     function toggleRestAPI(enabled) {
-        $.ajax({
+        $.cjax({
             url: '/api/restapi/toggle',
             method: 'POST',
             data: { enable: enabled },
@@ -212,9 +233,8 @@
                     msgbox('Error: ' + response.error, false);
                     return;
                 }
-                msgbox('REST API ' + (enabled ? 'enabled' : 'disabled') + '. Restart required.', true);
-                $('#restartNote').show();
-                updateUIState(enabled);
+                msgbox('REST API ' + (enabled ? 'enabled' : 'disabled'), true);
+                updateUIState(enabled, $('#restAPIDocsEnabled').is(':checked'));
             },
             error: function(xhr) {
                 msgbox('Failed to update setting', false);
@@ -222,9 +242,31 @@
         });
     }
 
-    function updateUIState(enabled) {
-        // Always show all sections - they can create tokens even if API is currently disabled
-        // The restart note will remind them to restart
+    function toggleRestAPIDocs(enabled) {
+        $.cjax({
+            url: '/api/restapi/docs-toggle',
+            method: 'POST',
+            data: { enable: enabled },
+            success: function(response) {
+                if (response.error) {
+                    msgbox('Error: ' + response.error, false);
+                    return;
+                }
+                msgbox('API Documentation ' + (enabled ? 'enabled' : 'disabled'), true);
+                updateUIState($('#restAPIEnabled').is(':checked'), enabled);
+            },
+            error: function(xhr) {
+                msgbox('Failed to update setting', false);
+            }
+        });
+    }
+
+    function updateUIState(apiEnabled, docsEnabled) {
+        if (docsEnabled) {
+            $('#apiDocsSection').show();
+        } else {
+            $('#apiDocsSection').hide();
+        }
     }
 
     function loadTokens() {
@@ -295,10 +337,12 @@
             data.expiry = new Date(expiry).toISOString();
         }
 
+        let csrfToken = document.getElementsByTagName("meta")["zoraxy.csrf.Token"].getAttribute("content");
         $.ajax({
             url: '/api/tokens/create',
             method: 'POST',
             contentType: 'application/json',
+            headers: { "X-CSRF-Token": csrfToken },
             data: JSON.stringify(data),
             success: function(response) {
                 if (response.error) {
@@ -306,9 +350,15 @@
                     return;
                 }
 
-                // Show the new token
-                $('#newTokenValue').text(response.token);
-                $('#newTokenDisplay').show();
+                // Show the token in modal
+                $('#newTokenValue').val(response.token);
+                $('#tokenCreatedModal').modal({
+                    closable: false,
+                    onHidden: function() {
+                        // Clear the token from display
+                        $('#newTokenValue').val('');
+                    }
+                }).modal('show');
 
                 // Reset form
                 $('#createTokenForm')[0].reset();
@@ -328,7 +378,7 @@
             return;
         }
 
-        $.ajax({
+        $.cjax({
             url: '/api/tokens/delete',
             method: 'POST',
             data: { id: tokenId },
@@ -347,16 +397,13 @@
     }
 
     function copyNewToken() {
-        let token = $('#newTokenValue').text();
+        let token = $('#newTokenValue').val();
         navigator.clipboard.writeText(token).then(function() {
             msgbox('Token copied to clipboard', true);
         }).catch(function() {
-            // Fallback for older browsers
-            let temp = $('<input>');
-            $('body').append(temp);
-            temp.val(token).select();
+            // Fallback - select and copy from input
+            $('#newTokenValue').select();
             document.execCommand('copy');
-            temp.remove();
             msgbox('Token copied to clipboard', true);
         });
     }

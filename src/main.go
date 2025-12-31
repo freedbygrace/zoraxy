@@ -120,12 +120,14 @@ func main() {
 	// Create a entry mux to accept all management interface requests
 	entryMux := http.NewServeMux()
 
-	// Check if REST API is enabled (via flag, env var, or database)
+	// Always register REST API routes - the router checks isRestAPIEnabled() dynamically
+	// This allows enabling/disabling REST API without restart
+	restAPIRouter := NewAPIv1Router(apiTokenManager)
+	entryMux.Handle("/api/v1/", restAPIRouter) //For REST API access (token auth)
 	if isRestAPIEnabled() {
-		// Create REST API router with token authentication
-		restAPIRouter := NewAPIv1Router(apiTokenManager)
-		entryMux.Handle("/api/v1/", restAPIRouter) //For REST API access (token auth)
 		SystemWideLogger.PrintAndLog("system", "REST API enabled at /api/v1/", nil)
+	} else {
+		SystemWideLogger.PrintAndLog("system", "REST API routes registered but disabled (enable in web UI)", nil)
 	}
 
 	entryMux.Handle("/plugin/", pluginAPIMux)            //For plugins API access

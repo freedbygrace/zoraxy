@@ -53,6 +53,8 @@ import (
 */
 
 func startupSequence() {
+	startupStart := time.Now()
+
 	//Start a system wide logger and log viewer
 	l, err := logger.NewLogger(LOG_PREFIX, *path_logFile)
 	if err == nil {
@@ -98,6 +100,8 @@ func startupSequence() {
 		LogViewer = logviewer.NewLogViewer(&logviewer.ViewerOption{
 			RootFolder: *path_logFile,
 		})
+	SystemWideLogger.Println("[Startup Timing] Logger initialized in " + time.Since(startupStart).String())
+	stepStart := time.Now()
 
 		// Initialize the cluster manager (for multi-node configuration replication)
 		clusterManager = NewClusterManager(CONF_CLUSTER_CONFIG, nodeUUID, SystemWideLogger)
@@ -114,6 +118,8 @@ func startupSequence() {
 		if *clusterSwarmMode && *clusterSwarmService != "" {
 			clusterManager.StartSwarmDiscovery(*clusterSwarmService, *clusterSwarmPort, *clusterSwarmScheme, 30*time.Second)
 		}
+	SystemWideLogger.Println("[Startup Timing] Cluster manager initialized in " + time.Since(stepStart).String())
+	stepStart = time.Now()
 
 	//Create database
 	backendType := database.GetRecommendedBackendType()
@@ -131,6 +137,8 @@ func startupSequence() {
 	sysdb = db
 	//Create tables for the database
 	sysdb.NewTable("settings")
+	SystemWideLogger.Println("[Startup Timing] Database initialized in " + time.Since(stepStart).String())
+	stepStart = time.Now()
 
 	//Create tmp folder and conf folder
 	os.MkdirAll(TMP_FOLDER, 0775)
@@ -176,6 +184,8 @@ func startupSequence() {
 		)
 	}
 	SystemWideLogger.PrintAndLog("auth", "API token manager initialized", nil)
+	SystemWideLogger.Println("[Startup Timing] Auth & token manager initialized in " + time.Since(stepStart).String())
+	stepStart = time.Now()
 
 	//Create a TLS certificate manager
 	tlsCertManager, err = tlscert.NewManager(CONF_CERT_STORE, SystemWideLogger)
@@ -193,6 +203,8 @@ func startupSequence() {
 	if err != nil {
 		panic(err)
 	}
+	SystemWideLogger.Println("[Startup Timing] TLS cert & redirect manager initialized in " + time.Since(stepStart).String())
+	stepStart = time.Now()
 
 	//Create a geodb store
 	geodbStore, err = geodb.NewGeoDb(sysdb, &geodb.StoreOptions{
@@ -204,6 +216,8 @@ func startupSequence() {
 	if err != nil {
 		panic(err)
 	}
+	SystemWideLogger.Println("[Startup Timing] GeoIP database initialized in " + time.Since(stepStart).String())
+	stepStart = time.Now()
 
 	//Create a load balancer
 	loadBalancer = loadbalance.NewLoadBalancer(&loadbalance.Options{
@@ -242,6 +256,8 @@ func startupSequence() {
 		panic(err)
 	}
 	statisticCollector.SetAutoSave(STATISTIC_AUTO_SAVE_INTERVAL)
+	SystemWideLogger.Println("[Startup Timing] LoadBalancer, AccessController, Auth providers, Stats initialized in " + time.Since(stepStart).String())
+	stepStart = time.Now()
 
 	//Start the static web server
 	staticWebServer = webserv.NewWebServer(&webserv.WebServerOptions{
@@ -273,6 +289,8 @@ func startupSequence() {
 		Enabled:      false,
 		ConfigFolder: CONF_PATH_RULE,
 	})
+	SystemWideLogger.Println("[Startup Timing] WebServer, NetStat, PathRules initialized in " + time.Since(stepStart).String())
+	stepStart = time.Now()
 
 	/*
 		MDNS Discovery Service
@@ -348,6 +366,8 @@ func startupSequence() {
 
 	//Create WoL MAC storage table
 	sysdb.NewTable("wolmac")
+	SystemWideLogger.Println("[Startup Timing] mDNS, WebSSH, StreamProxy initialized in " + time.Since(stepStart).String())
+	stepStart = time.Now()
 
 	//Create an email sender if SMTP config exists
 	sysdb.NewTable("smtp")
@@ -387,6 +407,8 @@ func startupSequence() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	SystemWideLogger.Println("[Startup Timing] SMTP, Analytics, ForwardProxy, ACME initialized in " + time.Since(stepStart).String())
+	stepStart = time.Now()
 
 	/*
 		Plugin Manager
@@ -442,6 +464,7 @@ func startupSequence() {
 	if err != nil {
 		SystemWideLogger.PrintAndLog("plugin-manager", "Failed to load plugins", err)
 	}
+	SystemWideLogger.Println("[Startup Timing] Plugin manager initialized in " + time.Since(stepStart).String())
 
 	/* Docker UX Optimizer */
 	if runtime.GOOS == "windows" && *runningInDocker {
@@ -449,6 +472,7 @@ func startupSequence() {
 	}
 	DockerUXOptimizer = dockerux.NewDockerOptimizer(*runningInDocker, SystemWideLogger)
 
+	SystemWideLogger.Println("[Startup Timing] Total startup sequence completed in " + time.Since(startupStart).String())
 }
 
 /* Finalize Startup Sequence */

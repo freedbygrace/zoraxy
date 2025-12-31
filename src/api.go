@@ -435,15 +435,19 @@ func RegisterAPITokenAPIs(authRouter *auth.RouterDef) {
 	authRouter.HandleFunc("/api/tokens/update", apiTokenManager.HandleUpdateToken)
 	authRouter.HandleFunc("/api/tokens/scopes", apiTokenManager.HandleGetScopes)
 	authRouter.HandleFunc("/api/restapi/toggle", HandleRestAPIToggle)
+	authRouter.HandleFunc("/api/restapi/docs-toggle", HandleRestAPIDocsToggle)
 }
 
 // HandleRestAPIToggle handles GET/POST for the REST API enabled state
 func HandleRestAPIToggle(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		// Return current state
-		enabled := isRestAPIEnabled()
-		js, _ := json.Marshal(enabled)
+		// Return current state for both API and docs
+		response := map[string]bool{
+			"enabled":     isRestAPIEnabled(),
+			"docsEnabled": isRestAPIDocsEnabled(),
+		}
+		js, _ := json.Marshal(response)
 		utils.SendJSONResponse(w, string(js))
 	case http.MethodPost:
 		newState, err := utils.PostBool(r, "enable")
@@ -467,6 +471,30 @@ func HandleRestAPIToggle(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// HandleRestAPIDocsToggle handles POST for the REST API docs enabled state
+func HandleRestAPIDocsToggle(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "405 - Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	newState, err := utils.PostBool(r, "enable")
+	if err != nil {
+		utils.SendErrorResponse(w, "invalid enable state")
+		return
+	}
+	err = sysdb.Write("settings", "restAPIDocsEnabled", newState)
+	if err != nil {
+		utils.SendErrorResponse(w, "failed to save setting")
+		return
+	}
+	if newState {
+		SystemWideLogger.PrintAndLog("REST API", "API documentation enabled", nil)
+	} else {
+		SystemWideLogger.PrintAndLog("REST API", "API documentation disabled", nil)
+	}
+	utils.SendOK(w)
+}
+
 // isRestAPIEnabled checks if REST API is enabled (CLI flag > env var > database)
 func isRestAPIEnabled() bool {
 	// CLI flag takes priority
@@ -484,4 +512,15 @@ func isRestAPIEnabled() bool {
 		return dbEnabled
 	}
 	return false
+}
+
+// isRestAPIDocsEnabled checks if REST API docs are enabled (default: true)
+func isRestAPIDocsEnabled() bool {
+	var enabled bool
+	if sysdb.KeyExists("settings", "restAPIDocsEnabled") {
+		sysdb.Read("settings", "restAPIDocsEnabled", &enabled)
+		return enabled
+	}
+	// Default to true (docs enabled)
+	return true
 }

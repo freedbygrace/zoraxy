@@ -57,6 +57,17 @@ func NewAPIv1Router(tokenManager *apitoken.TokenManager) *APIv1Router {
 
 // ServeHTTP implements http.Handler
 func (r *APIv1Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	// Check if REST API is enabled (dynamic check - no restart needed)
+	if !isRestAPIEnabled() {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   "service unavailable",
+			"message": "REST API is disabled. Enable it in the web UI under Others > Rest API.",
+		})
+		return
+	}
+
 	// Set JSON content type for all API responses
 	w.Header().Set("Content-Type", "application/json")
 	r.mux.ServeHTTP(w, req)

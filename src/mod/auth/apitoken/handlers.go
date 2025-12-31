@@ -23,6 +23,7 @@ type CreateTokenRequest struct {
 	Scopes      []string `json:"scopes"`
 	Description string   `json:"description"`
 	ExpiresIn   int      `json:"expiresIn"` // Seconds until expiration, 0 = never
+	Expiry      string   `json:"expiry"`    // ISO 8601 date string (alternative to expiresIn)
 }
 
 // CreateTokenResponse is the response when creating a token
@@ -92,7 +93,15 @@ func (tm *TokenManager) HandleCreateToken(w http.ResponseWriter, r *http.Request
 
 	// Calculate expiration
 	var expiresAt time.Time
-	if req.ExpiresIn > 0 {
+	if req.Expiry != "" {
+		// Parse ISO 8601 date string
+		parsed, err := time.Parse(time.RFC3339, req.Expiry)
+		if err != nil {
+			utils.SendErrorResponse(w, "invalid expiry date format, use ISO 8601")
+			return
+		}
+		expiresAt = parsed
+	} else if req.ExpiresIn > 0 {
 		expiresAt = time.Now().Add(time.Duration(req.ExpiresIn) * time.Second)
 	}
 
