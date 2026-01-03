@@ -110,13 +110,28 @@ func startupSequence() {
 		}
 
 		// Apply cluster configuration from flags/env vars if provided
-		if *clusterEnabled || *clusterSecret != "" || *clusterPeers != "" {
+		if *clusterEnabled || *clusterSecret != "" || *clusterPeers != "" || *clusterMeshMode || *clusterAdvertiseAddr != "" || os.Getenv("ZORAXY_ADVERTISE_ADDR") != "" {
 			applyClusterFlagsConfig()
 		}
+
+		// Auto-detect advertise address for mesh mode (parse management port)
+		mgmtPort := 8000
+		if portStr := strings.TrimPrefix(*webUIPort, ":"); portStr != "" {
+			if p, err := strconv.Atoi(portStr); err == nil {
+				mgmtPort = p
+			}
+		}
+		clusterManager.InitializeAdvertiseAddr(mgmtPort)
 
 		// Start Docker Swarm auto-discovery if enabled
 		if *clusterSwarmMode && *clusterSwarmService != "" {
 			clusterManager.StartSwarmDiscovery(*clusterSwarmService, *clusterSwarmPort, *clusterSwarmScheme, 30*time.Second)
+		}
+
+		// Start heartbeat loop if cluster is enabled
+		if clusterManager.IsEnabled() {
+			clusterManager.StartHeartbeat()
+			SystemWideLogger.PrintAndLog("cluster", "Cluster heartbeat started", nil)
 		}
 	SystemWideLogger.Println("[Startup Timing] Cluster manager initialized in " + time.Since(stepStart).String())
 	stepStart = time.Now()
@@ -183,6 +198,30 @@ func startupSequence() {
 			},
 		)
 	}
+
+	// Create bootstrap API token from CLI flag or environment variable
+	bootstrapToken := *initialAPIToken
+	if envToken := os.Getenv("ZORAXY_API_TOKEN"); envToken != "" {
+		bootstrapToken = envToken
+	}
+	if bootstrapToken != "" && *enableRestAPI {
+		// Create a bootstrap token with full access
+		token, created, err := apiTokenManager.CreateTokenWithRawValue(
+			"bootstrap-token",
+			bootstrapToken,
+			[]string{apitoken.ScopeAll},
+			"Bootstrap token created from CLI/environment variable",
+			time.Time{}, // Never expires
+		)
+		if err != nil {
+			SystemWideLogger.PrintAndLog("auth", "Failed to create bootstrap API token", err)
+		} else if created {
+			SystemWideLogger.PrintAndLog("auth", "Bootstrap API token created: "+token.ID, nil)
+		} else {
+			SystemWideLogger.PrintAndLog("auth", "Bootstrap API token already exists, skipping", nil)
+		}
+	}
+
 	SystemWideLogger.PrintAndLog("auth", "API token manager initialized", nil)
 	SystemWideLogger.Println("[Startup Timing] Auth & token manager initialized in " + time.Since(stepStart).String())
 	stepStart = time.Now()

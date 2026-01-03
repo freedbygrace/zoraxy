@@ -285,20 +285,32 @@
 
         let html = '';
         tokens.forEach(function(token) {
-            let scopeBadges = token.Scopes.map(s => `<span class="ui tiny label scope-badge">${s}</span>`).join('');
-            let expiryText = token.Expiry ? new Date(token.Expiry).toLocaleString() : 'Never';
-            let lastUsedText = token.LastUsed ? new Date(token.LastUsed).toLocaleString() : 'Never';
-            let createdText = new Date(token.CreatedAt).toLocaleString();
+            let scopes = token.scopes || [];
+            let scopeBadges = scopes.map(s => `<span class="ui tiny label scope-badge">${s}</span>`).join('');
+
+            // Handle expiry - check for zero time or missing value
+            let expiryText = 'Never';
+            if (token.expiresAt && token.expiresAt !== '0001-01-01T00:00:00Z') {
+                expiryText = new Date(token.expiresAt).toLocaleString();
+            }
+
+            // Handle last used - check for zero time
+            let lastUsedText = 'Never';
+            if (token.lastUsedAt && token.lastUsedAt !== '0001-01-01T00:00:00Z') {
+                lastUsedText = new Date(token.lastUsedAt).toLocaleString();
+            }
+
+            let createdText = token.createdAt ? new Date(token.createdAt).toLocaleString() : '-';
 
             html += `<tr>
-                <td><strong>${escapeHtml(token.Name)}</strong></td>
-                <td>${escapeHtml(token.Description || '-')}</td>
+                <td><strong>${escapeHtml(token.name)}</strong></td>
+                <td>${escapeHtml(token.description || '-')}</td>
                 <td>${scopeBadges}</td>
                 <td>${createdText}</td>
                 <td>${expiryText}</td>
                 <td>${lastUsedText}</td>
                 <td>
-                    <button class="ui red tiny button" onclick="deleteToken('${token.ID}')">
+                    <button class="ui red tiny button" onclick="deleteToken('${token.id}')">
                         <i class="trash icon"></i> Delete
                     </button>
                 </td>

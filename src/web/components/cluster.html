@@ -13,6 +13,7 @@
                     <tbody>
                         <tr><td><b>Node ID</b></td><td id="clusterNodeId">-</td></tr>
                         <tr><td><b>Status</b></td><td id="clusterStatus">-</td></tr>
+                        <tr><td><b>Mesh Mode</b></td><td id="clusterMeshStatus">-</td></tr>
                         <tr><td><b>Swarm Mode</b></td><td id="clusterSwarmStatus">-</td></tr>
                         <tr><td><b>Connected Peers</b></td><td id="clusterPeerCount">0</td></tr>
                         <tr><td><b>Synced Certificates</b></td><td id="clusterCertCount">0</td></tr>
@@ -91,6 +92,44 @@
                         <option value="https">https</option>
                     </select>
                 </div>
+            </div>
+        </div>
+
+        <!-- Mesh Mode -->
+        <div class="field">
+            <div class="ui toggle checkbox">
+                <input type="checkbox" id="meshModeEnabled" onchange="toggleMeshFields()">
+                <label>Enable Mesh Mode (Auto-discover peers)</label>
+            </div>
+            <small style="display: block; margin-top: 0.5em; color: #888;">
+                <i class="info circle icon"></i> When enabled, nodes will automatically add each other as peers when they receive sync requests.
+                This creates a full mesh topology where all nodes sync with all other nodes.
+            </small>
+        </div>
+
+        <!-- Mesh Mode Fields -->
+        <div id="meshFields" style="display: none; margin-left: 1.5em; margin-top: 1em;">
+            <div class="field">
+                <label>Advertise Address</label>
+                <div class="ui action input" style="width: 100%;">
+                    <input type="text" id="advertiseAddr" placeholder="Auto-detected or enter manually">
+                    <button class="ui teal button" type="button" onclick="detectAdvertiseAddr()">
+                        <i class="magic icon"></i> Auto-detect
+                    </button>
+                </div>
+                <small style="display: block; margin-top: 0.3em;">
+                    <i class="lightbulb outline icon"></i> The URL other nodes use to reach this node.
+                    Click "Auto-detect" or set the <code>ZORAXY_ADVERTISE_ADDR</code> environment variable.
+                </small>
+            </div>
+            <div class="ui info message">
+                <div class="header"><i class="lightbulb icon"></i> How Mesh Mode Works</div>
+                <ul class="list">
+                    <li>When this node sends a sync, it includes its advertise address in the request</li>
+                    <li>The receiving node (if mesh mode is enabled) automatically adds this node as a peer</li>
+                    <li>This creates bi-directional sync without manually configuring peers on every node</li>
+                    <li>You still need at least one peer configured initially to bootstrap the mesh</li>
+                </ul>
             </div>
         </div>
 
@@ -241,6 +280,11 @@ networks:
             $("#clusterEnabled").prop("checked", data.enabled);
             $("#clusterSecret").val(data.sharedSecret || "");
 
+            // Mesh mode settings
+            $("#meshModeEnabled").prop("checked", data.meshMode || false);
+            $("#advertiseAddr").val(data.advertiseAddr || "");
+            toggleMeshFields();
+
             // Swarm settings
             $("#swarmEnabled").prop("checked", data.swarmEnabled || false);
             $("#swarmService").val(data.swarmService || "");
@@ -272,6 +316,14 @@ networks:
                 $("#clusterStatus").html('<span class="ui green text"><i class="check circle icon"></i> Enabled</span>');
             } else {
                 $("#clusterStatus").html('<span class="ui grey text"><i class="circle outline icon"></i> Disabled</span>');
+            }
+
+            // Mesh mode status
+            if (data.meshMode) {
+                let addrText = data.advertiseAddr ? ' (' + data.advertiseAddr + ')' : '';
+                $("#clusterMeshStatus").html('<span class="ui teal text"><i class="sitemap icon"></i> Active' + addrText + '</span>');
+            } else {
+                $("#clusterMeshStatus").html('<span class="ui grey text">Disabled</span>');
             }
 
             // Swarm status
@@ -327,6 +379,30 @@ networks:
             $("#swarmFields").hide();
             $("#manualPeerFields").show();
         }
+    }
+
+    function toggleMeshFields() {
+        if ($("#meshModeEnabled").is(":checked")) {
+            $("#meshFields").show();
+        } else {
+            $("#meshFields").hide();
+        }
+    }
+
+    function detectAdvertiseAddr() {
+        $.get("/api/cluster/advertise-addr/detect", function(data) {
+            if (data && data.address) {
+                $("#advertiseAddr").val(data.address);
+                let source = data.source || "unknown";
+                msgbox("Detected: " + data.address + " (source: " + source + ")", true);
+            } else if (data && data.error) {
+                msgbox("Detection failed: " + data.error, false);
+            } else {
+                msgbox("Could not auto-detect address", false);
+            }
+        }).fail(function() {
+            msgbox("Failed to detect advertise address", false);
+        });
     }
 
     function toggleSecretVisibility() {
@@ -396,6 +472,8 @@ networks:
             enabled: $("#clusterEnabled").is(":checked"),
             sharedSecret: $("#clusterSecret").val(),
             peers: peers,
+            meshMode: $("#meshModeEnabled").is(":checked"),
+            advertiseAddr: $("#advertiseAddr").val().trim(),
             swarmEnabled: swarmEnabled,
             swarmService: $("#swarmService").val().trim(),
             swarmPort: parseInt($("#swarmPort").val()) || 8000,

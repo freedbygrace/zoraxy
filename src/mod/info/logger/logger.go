@@ -97,6 +97,14 @@ func (l *Logger) PrintAndLog(title string, message string, originalError error) 
 	}()
 }
 
+// Warn logs a warning message to file and STDOUT
+// Warnings are for issues that don't prevent operation but should be noted
+func (l *Logger) Warn(title string, message string) {
+	go func() {
+		l.LogWithLevel(title, message, "warning", true)
+	}()
+}
+
 // Println is a fast snap-in replacement for log.Println
 func (l *Logger) Println(v ...interface{}) {
 	//Convert the array of interfaces into string
@@ -104,6 +112,18 @@ func (l *Logger) Println(v ...interface{}) {
 	go func() {
 		l.Log("internal", string(message), nil, true)
 	}()
+}
+
+// LogWithLevel logs a message with a specific level (info, warning, error)
+func (l *Logger) LogWithLevel(title string, message string, level string, copyToSTDOUT bool) {
+	l.ValidateAndUpdateLogFilepath()
+	logLine := "[" + time.Now().Format("2006-01-02 15:04:05.000000") + "] [" + title + "] [system:" + level + "] " + message
+	if l.logger == nil || copyToSTDOUT {
+		fmt.Println(logLine)
+	}
+	if l.logger != nil {
+		l.logger.Println(logLine)
+	}
 }
 
 func (l *Logger) Log(title string, errorMessage string, originalError error, copyToSTDOUT bool) {

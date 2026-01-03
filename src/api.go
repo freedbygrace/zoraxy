@@ -224,23 +224,28 @@ func RegisterStaticWebServerAPIs(authRouter *auth.RouterDef) {
 }
 
 // Register the APIs for cluster configuration and inter-node replication
-func RegisterClusterAPIs(authRouter *auth.RouterDef, targetMux *http.ServeMux) {
+// adminMux is for management UI (with CSRF protection)
+// interNodeMux is for inter-node communication (without CSRF protection, uses shared secret)
+func RegisterClusterAPIs(authRouter *auth.RouterDef, adminMux *http.ServeMux, interNodeMux *http.ServeMux) {
 	// Admin APIs (management UI) for configuring the cluster
 	authRouter.HandleFunc("/api/cluster/config", HandleClusterConfig)
 	authRouter.HandleFunc("/api/cluster/status", HandleClusterStatus)
 	authRouter.HandleFunc("/api/cluster/secret/generate", HandleClusterGenerateSecret)
+	authRouter.HandleFunc("/api/cluster/advertise-addr/detect", HandleClusterDetectAdvertiseAddr)
 
-	// Inter-node replication endpoints (protected by shared secret, not web auth)
-	targetMux.HandleFunc("/cluster/proxy/upsert", HandleClusterProxyUpsert)
-	targetMux.HandleFunc("/cluster/proxy/delete", HandleClusterProxyDelete)
-	targetMux.HandleFunc("/cluster/certs/sync", HandleClusterCertSync)
-	targetMux.HandleFunc("/cluster/certs/list", HandleClusterCertList)
-	targetMux.HandleFunc("/cluster/access/sync", HandleClusterAccessRuleSync)
-	targetMux.HandleFunc("/cluster/access/delete", HandleClusterAccessRuleDelete)
-	targetMux.HandleFunc("/cluster/redirect/sync", HandleClusterRedirectSync)
-	targetMux.HandleFunc("/cluster/redirect/delete", HandleClusterRedirectDelete)
-	targetMux.HandleFunc("/cluster/apitoken/sync", HandleClusterAPITokenSync)
-	targetMux.HandleFunc("/cluster/apitoken/delete", HandleClusterAPITokenDelete)
+	// Inter-node replication endpoints (protected by shared secret, not web auth or CSRF)
+	// These are registered on a separate mux that bypasses CSRF middleware
+	interNodeMux.HandleFunc("/cluster/proxy/upsert", HandleClusterProxyUpsert)
+	interNodeMux.HandleFunc("/cluster/proxy/delete", HandleClusterProxyDelete)
+	interNodeMux.HandleFunc("/cluster/certs/sync", HandleClusterCertSync)
+	interNodeMux.HandleFunc("/cluster/certs/list", HandleClusterCertList)
+	interNodeMux.HandleFunc("/cluster/access/sync", HandleClusterAccessRuleSync)
+	interNodeMux.HandleFunc("/cluster/access/delete", HandleClusterAccessRuleDelete)
+	interNodeMux.HandleFunc("/cluster/redirect/sync", HandleClusterRedirectSync)
+	interNodeMux.HandleFunc("/cluster/redirect/delete", HandleClusterRedirectDelete)
+	interNodeMux.HandleFunc("/cluster/apitoken/sync", HandleClusterAPITokenSync)
+	interNodeMux.HandleFunc("/cluster/apitoken/delete", HandleClusterAPITokenDelete)
+	interNodeMux.HandleFunc("/cluster/heartbeat", HandleClusterHeartbeat)
 }
 
 // Register the APIs for Network Utilities functions
@@ -355,7 +360,9 @@ func RegisterAuthAPIs(requireAuth bool, targetMux *http.ServeMux) {
 }
 
 /* Register all the APIs */
-func initAPIs(targetMux *http.ServeMux) {
+// targetMux is for web UI (with CSRF protection)
+// clusterInterNodeMux is for cluster inter-node communication (without CSRF protection)
+func initAPIs(targetMux *http.ServeMux, clusterInterNodeMux *http.ServeMux) {
 	authRouter := auth.NewManagedHTTPRouter(auth.RouterOption{
 		AuthAgent:   authAgent,
 		RequireAuth: requireAuth,
@@ -395,7 +402,7 @@ func initAPIs(targetMux *http.ServeMux) {
 	RegisterNetworkUtilsAPIs(authRouter)
 	RegisterACMEAndAutoRenewerAPIs(authRouter)
 	RegisterStaticWebServerAPIs(authRouter)
-		RegisterClusterAPIs(authRouter, targetMux)
+	RegisterClusterAPIs(authRouter, targetMux, clusterInterNodeMux)
 	RegisterPluginAPIs(authRouter)
 
 	//Account Reset

@@ -9,6 +9,7 @@ import (
     "net/http"
     "os"
     "path/filepath"
+    "strconv"
     "strings"
     "time"
 
@@ -69,7 +70,7 @@ func HandleClusterConfig(w http.ResponseWriter, r *http.Request) {
             utils.SendErrorResponse(w, "sharedSecret is required when cluster is enabled")
             return
         }
-        SystemWideLogger.PrintAndLog("cluster", "Updating cluster config: enabled="+boolToStr(cfg.Enabled)+", swarmEnabled="+boolToStr(cfg.SwarmEnabled)+", swarmService="+cfg.SwarmService, nil)
+        SystemWideLogger.PrintAndLog("cluster", "Updating cluster config: enabled="+boolToStr(cfg.Enabled)+", meshMode="+boolToStr(cfg.MeshMode)+", advertiseAddr="+cfg.AdvertiseAddr+", swarmEnabled="+boolToStr(cfg.SwarmEnabled)+", swarmService="+cfg.SwarmService, nil)
         if err := clusterManager.UpdateConfig(cfg); err != nil {
             SystemWideLogger.PrintAndLog("cluster", "Failed to save cluster config", err)
             utils.SendErrorResponse(w, "failed to save config: "+err.Error())
@@ -168,6 +169,9 @@ func HandleClusterProxyUpsert(w http.ResponseWriter, r *http.Request) {
     key := req.Endpoint.RootOrMatchingDomain
     if !clusterManager.ShouldApplyProxyUpdate(key, req.Timestamp) {
         // Outdated update, safe to ignore
+        if SystemWideLogger != nil {
+            SystemWideLogger.PrintAndLog("cluster", "Skipping outdated proxy upsert for: "+key+" (timestamp check)", nil)
+        }
         utils.SendOK(w)
         return
     }
@@ -184,6 +188,13 @@ func HandleClusterProxyUpsert(w http.ResponseWriter, r *http.Request) {
 
     // Record this node as a sync source
     clusterManager.RecordSyncSource(req.OriginNodeID, getRequestSourceIP(r), "proxy")
+
+    // Mesh mode: auto-add peer if not already known
+    clusterManager.AutoAddPeerFromRequest(r, req.OriginNodeID)
+
+    if SystemWideLogger != nil {
+        SystemWideLogger.PrintAndLog("cluster", "Received proxy upsert from peer: "+req.Endpoint.RootOrMatchingDomain+" (node: "+req.OriginNodeID+")", nil)
+    }
 
     UpdateUptimeMonitorTargets()
     utils.SendOK(w)
@@ -245,6 +256,13 @@ func HandleClusterProxyDelete(w http.ResponseWriter, r *http.Request) {
     // Record this node as a sync source
     clusterManager.RecordSyncSource(req.OriginNodeID, getRequestSourceIP(r), "proxy-delete")
 
+    // Mesh mode: auto-add peer if not already known
+    clusterManager.AutoAddPeerFromRequest(r, req.OriginNodeID)
+
+    if SystemWideLogger != nil {
+        SystemWideLogger.PrintAndLog("cluster", "Received proxy delete from peer: "+req.RootOrMatchingDomain+" (node: "+req.OriginNodeID+")", nil)
+    }
+
     UpdateUptimeMonitorTargets()
     utils.SendOK(w)
 }
@@ -264,6 +282,52 @@ func HandleClusterGenerateSecret(w http.ResponseWriter, r *http.Request) {
     // Encode as URL-safe base64
     secret := base64.URLEncoding.EncodeToString(bytes)
     utils.SendTextResponse(w, secret)
+}
+
+// Admin API: auto-detect the advertise address for mesh mode
+func HandleClusterDetectAdvertiseAddr(w http.ResponseWriter, r *http.Request) {
+    if r.Method != http.MethodGet {
+        http.Error(w, "405 - Method not allowed", http.StatusMethodNotAllowed)
+        return
+    }
+    if clusterManager == nil {
+        utils.SendErrorResponse(w, "cluster manager not initialized")
+        return
+    }
+
+    // Determine the management port from the webUIPort flag
+    mgmtPort := 8000
+    if webUIPort != nil {
+        portStr := strings.TrimPrefix(*webUIPort, ":")
+        if p, err := strconv.Atoi(portStr); err == nil {
+            mgmtPort = p
+        }
+    }
+
+    // Check for environment variable first
+    if envAddr := os.Getenv("ZORAXY_ADVERTISE_ADDR"); envAddr != "" {
+        result := map[string]string{
+            "address": envAddr,
+            "source":  "environment",
+        }
+        js, _ := json.Marshal(result)
+        utils.SendJSONResponse(w, string(js))
+        return
+    }
+
+    // Use the auto-detect function
+    detectedAddr := clusterManager.AutoDetectAdvertiseAddr(mgmtPort)
+    if detectedAddr == "" {
+        utils.SendErrorResponse(w, "could not detect suitable IP address")
+        return
+    }
+
+    result := map[string]string{
+        "address": detectedAddr,
+        "source":  "auto-detect",
+    }
+    js, _ := json.Marshal(result)
+    utils.SendJSONResponse(w, string(js))
 }
 
 // Inter-node API: receive a certificate sync from a peer
@@ -346,6 +410,9 @@ func HandleClusterCertSync(w http.ResponseWriter, r *http.Request) {
 
     // Record this node as a sync source
     clusterManager.RecordSyncSource(payload.OriginNodeID, getRequestSourceIP(r), "cert")
+
+    // Mesh mode: auto-add peer if not already known
+    clusterManager.AutoAddPeerFromRequest(r, payload.OriginNodeID)
 
     if SystemWideLogger != nil {
         SystemWideLogger.PrintAndLog("cluster", "Received certificate sync for domain: "+domain+" from node: "+payload.OriginNodeID, nil)
@@ -537,6 +604,9 @@ func HandleClusterAccessRuleSync(w http.ResponseWriter, r *http.Request) {
     // Record this node as a sync source
     clusterManager.RecordSyncSource(payload.OriginNodeID, getRequestSourceIP(r), "accessRule")
 
+    // Mesh mode: auto-add peer if not already known
+    clusterManager.AutoAddPeerFromRequest(r, payload.OriginNodeID)
+
     SystemWideLogger.PrintAndLog("cluster", "Synced access rule from peer: "+payload.ID, nil)
     utils.SendOK(w)
 }
@@ -585,6 +655,9 @@ func HandleClusterAccessRuleDelete(w http.ResponseWriter, r *http.Request) {
     // Record this node as a sync source
     clusterManager.RecordSyncSource(payload.OriginNodeID, getRequestSourceIP(r), "accessRule-delete")
 
+    // Mesh mode: auto-add peer if not already known
+    clusterManager.AutoAddPeerFromRequest(r, payload.OriginNodeID)
+
     utils.SendOK(w)
 }
 
@@ -626,6 +699,9 @@ func HandleClusterRedirectSync(w http.ResponseWriter, r *http.Request) {
 
     // Record this node as a sync source
     clusterManager.RecordSyncSource(payload.OriginNodeID, getRequestSourceIP(r), "redirect")
+
+    // Mesh mode: auto-add peer if not already known
+    clusterManager.AutoAddPeerFromRequest(r, payload.OriginNodeID)
 
     SystemWideLogger.PrintAndLog("cluster", "Synced redirect rule from peer: "+payload.RedirectURL, nil)
     utils.SendOK(w)
@@ -672,6 +748,9 @@ func HandleClusterRedirectDelete(w http.ResponseWriter, r *http.Request) {
 
     // Record this node as a sync source
     clusterManager.RecordSyncSource(payload.OriginNodeID, getRequestSourceIP(r), "redirect-delete")
+
+    // Mesh mode: auto-add peer if not already known
+    clusterManager.AutoAddPeerFromRequest(r, payload.OriginNodeID)
 
     utils.SendOK(w)
 }
@@ -732,6 +811,9 @@ func HandleClusterAPITokenSync(w http.ResponseWriter, r *http.Request) {
     // Record this node as a sync source
     clusterManager.RecordSyncSource(payload.OriginNodeID, getRequestSourceIP(r), "apiToken")
 
+    // Mesh mode: auto-add peer if not already known
+    clusterManager.AutoAddPeerFromRequest(r, payload.OriginNodeID)
+
     SystemWideLogger.PrintAndLog("cluster", "Synced API token from peer: "+payload.Name, nil)
     utils.SendOK(w)
 }
@@ -776,5 +858,76 @@ func HandleClusterAPITokenDelete(w http.ResponseWriter, r *http.Request) {
     // Record this node as a sync source
     clusterManager.RecordSyncSource(payload.OriginNodeID, getRequestSourceIP(r), "apiToken-delete")
 
+    // Mesh mode: auto-add peer if not already known
+    clusterManager.AutoAddPeerFromRequest(r, payload.OriginNodeID)
+
     utils.SendOK(w)
+}
+
+// HandleClusterHeartbeat handles heartbeat requests from peer nodes
+// This is used for health checking and peer discovery in mesh mode
+func HandleClusterHeartbeat(w http.ResponseWriter, r *http.Request) {
+    if r.Method != http.MethodPost {
+        http.Error(w, "405 - Method not allowed", http.StatusMethodNotAllowed)
+        return
+    }
+
+    if clusterManager == nil || !clusterManager.IsEnabled() {
+        http.Error(w, "503 - Cluster disabled", http.StatusServiceUnavailable)
+        return
+    }
+
+    // Verify shared secret
+    if !clusterManager.CheckSharedSecret(r.Header.Get("X-Zoraxy-Cluster-Secret")) {
+        http.Error(w, "401 - Unauthorized", http.StatusUnauthorized)
+        return
+    }
+
+    var req HeartbeatRequest
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        utils.SendErrorResponse(w, "invalid json: "+err.Error())
+        return
+    }
+
+    // Ignore our own heartbeat
+    if req.NodeID == nodeUUID {
+        utils.SendOK(w)
+        return
+    }
+
+    // Log heartbeat received
+    if SystemWideLogger != nil {
+        SystemWideLogger.PrintAndLog("cluster", "Heartbeat received from "+req.Hostname+" ("+req.NodeID[:8]+"...)", nil)
+    }
+
+    // Record this node as a sync source
+    clusterManager.RecordSyncSource(req.NodeID, getRequestSourceIP(r), "heartbeat")
+
+    // Mesh mode: auto-add peer if not already known
+    if req.AdvertiseAddr != "" {
+        r.Header.Set("X-Zoraxy-Advertise-URL", req.AdvertiseAddr)
+        clusterManager.AutoAddPeerFromRequest(r, req.NodeID)
+    }
+
+    // Mesh mode: merge their known peers
+    if clusterManager.IsMeshModeEnabled() && len(req.KnownPeers) > 0 {
+        clusterManager.MergeKnownPeersPublic(req.KnownPeers)
+    }
+
+    // Build response with our info
+    cfg := clusterManager.GetConfig()
+    resp := HeartbeatResponse{
+        NodeID:        nodeUUID,
+        Hostname:      clusterManager.GetHostname(),
+        AdvertiseAddr: cfg.AdvertiseAddr,
+        Timestamp:     time.Now().Unix(),
+    }
+
+    // Share our known peers in mesh mode
+    if cfg.MeshMode {
+        resp.KnownPeers = cfg.Peers
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(resp)
 }

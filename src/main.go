@@ -98,9 +98,10 @@ func main() {
 	}
 	nodeUUID = string(uuidBytes)
 
-	//Create a new webmin mux, plugin mux and csrf middleware layer
+	//Create a new webmin mux, plugin mux, cluster inter-node mux and csrf middleware layer
 	webminPanelMux = http.NewServeMux()
 	pluginAPIMux := http.NewServeMux()
+	clusterInterNodeMux := http.NewServeMux() // For cluster inter-node communication (no CSRF)
 	csrfMiddleware = csrf.Protect(
 		[]byte(nodeUUID),
 		csrf.CookieName(CSRF_COOKIENAME),
@@ -114,7 +115,7 @@ func main() {
 
 	//Initiate APIs
 	requireAuth = !(*noauth)
-	initAPIs(webminPanelMux)
+	initAPIs(webminPanelMux, clusterInterNodeMux)
 	initRestAPI(pluginAPIMux)
 
 	// Create a entry mux to accept all management interface requests
@@ -131,6 +132,7 @@ func main() {
 	}
 
 	entryMux.Handle("/plugin/", pluginAPIMux)            //For plugins API access
+	entryMux.Handle("/cluster/", clusterInterNodeMux)    //For cluster inter-node communication (no CSRF)
 	entryMux.Handle("/", csrfMiddleware(webminPanelMux)) //For webmin UI access, require csrf token
 
 	// Start the reverse proxy server in go routine

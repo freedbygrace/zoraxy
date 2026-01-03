@@ -113,7 +113,8 @@ var (
 	path_plugin    = flag.String("plugin", "./plugins", "Plugin folder path")
 
 	/* REST API Flags */
-	enableRestAPI = flag.Bool("enable-rest-api", false, "Enable REST API with API token authentication")
+	enableRestAPI   = flag.Bool("enable-rest-api", false, "Enable REST API with API token authentication")
+	initialAPIToken = flag.String("api_token", "", "Initial API token (raw token value). If set, creates a bootstrap token with full access. Can also use ZORAXY_API_TOKEN env var.")
 
 	/* Maintaince & Development Function Flags */
 	geoDbUpdate       = flag.Bool("update_geoip", false, "Download the latest GeoIP data and exit")
@@ -127,6 +128,8 @@ var (
 	clusterSwarmService = flag.String("cluster_swarm_service", "", "DNS name for Swarm peer discovery (e.g., tasks.zoraxy for all replicas, or zoraxy for VIP)")
 	clusterSwarmPort    = flag.Int("cluster_swarm_port", 8000, "Port used by cluster peers in Swarm mode")
 	clusterSwarmScheme  = flag.String("cluster_swarm_scheme", "http", "URL scheme for Swarm peers (http or https)")
+	clusterMeshMode     = flag.Bool("cluster_mesh", false, "Enable mesh mode for automatic peer discovery")
+	clusterAdvertiseAddr = flag.String("cluster_advertise_addr", "", "Advertise address for mesh mode (e.g., http://192.168.1.10:8000). Auto-detected if not set.")
 
 	/* Initial Admin Credentials Flags */
 	adminUser     = flag.String("admin_user", "", "Initial admin username (only used if no users exist)")

@@ -188,6 +188,68 @@ func (tm *TokenManager) CreateToken(name string, scopes []string, description st
 	return token, rawToken, nil
 }
 
+// CreateTokenWithRawValue creates a token with a known raw value (for bootstrap tokens from CLI/env)
+// The rawToken should include the prefix (e.g., "zrx_...") or it will be added
+// Returns the token and true if created, or nil and false if a token with this name already exists
+func (tm *TokenManager) CreateTokenWithRawValue(name string, rawToken string, scopes []string, description string, expiresAt time.Time) (*ApiToken, bool, error) {
+	tm.mutex.Lock()
+	defer tm.mutex.Unlock()
+
+	// Check if a token with this name already exists
+	entries, err := tm.db.ListTable(TableName)
+	if err == nil {
+		for _, entry := range entries {
+			if len(entry) < 2 {
+				continue
+			}
+			var existing ApiToken
+			if err := tm.db.Read(TableName, string(entry[0]), &existing); err == nil {
+				if existing.Name == name {
+					return nil, false, nil // Already exists, skip
+				}
+			}
+		}
+	}
+
+	// Ensure token has prefix
+	if !strings.HasPrefix(rawToken, TokenPrefix) {
+		rawToken = TokenPrefix + rawToken
+	}
+
+	// Hash the token for storage
+	hash := sha256.Sum256([]byte(rawToken))
+	tokenHash := hex.EncodeToString(hash[:])
+
+	// Generate unique ID
+	id, err := generateID()
+	if err != nil {
+		return nil, false, err
+	}
+
+	// Create token record
+	token := &ApiToken{
+		ID:          id,
+		Name:        name,
+		TokenHash:   tokenHash,
+		Scopes:      scopes,
+		CreatedAt:   time.Now(),
+		LastUsedAt:  time.Time{},
+		ExpiresAt:   expiresAt,
+		Description: description,
+		Disabled:    false,
+	}
+
+	// Save to database
+	if err := tm.db.Write(TableName, id, token); err != nil {
+		return nil, false, err
+	}
+
+	// Add to cache
+	tm.cache[tokenHash] = token
+
+	return token, true, nil
+}
+
 // ImportTokenFromCluster imports a token that was synchronized from another cluster node
 // This uses the already-hashed token value since raw tokens are never shared between nodes
 func (tm *TokenManager) ImportTokenFromCluster(id, name, tokenHash string, scopes []string, createdAt, expiresAt time.Time, description string, disabled bool) error {
