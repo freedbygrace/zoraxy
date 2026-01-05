@@ -15,6 +15,7 @@ import (
 
     "imuslab.com/zoraxy/mod/access"
     "imuslab.com/zoraxy/mod/dynamicproxy"
+    "imuslab.com/zoraxy/mod/dynamicproxy/loadbalance"
     "imuslab.com/zoraxy/mod/utils"
 )
 
@@ -112,6 +113,26 @@ func applyClusterProxyEndpoint(ep *dynamicproxy.ProxyEndpoint) error {
         return errors.New("nil endpoint")
     }
 
+    // Ensure required fields have defaults if nil (can happen during cluster sync)
+    if ep.AuthenticationProvider == nil {
+        ep.AuthenticationProvider = dynamicproxy.GetDefaultAuthenticationProvider()
+    }
+    if ep.HeaderRewriteRules == nil {
+        ep.HeaderRewriteRules = dynamicproxy.GetDefaultHeaderRewriteRules()
+    }
+    if ep.ActiveOrigins == nil {
+        ep.ActiveOrigins = []*loadbalance.Upstream{}
+    }
+    if ep.InactiveOrigins == nil {
+        ep.InactiveOrigins = []*loadbalance.Upstream{}
+    }
+    if ep.VirtualDirectories == nil {
+        ep.VirtualDirectories = []*dynamicproxy.VirtualDirectoryEndpoint{}
+    }
+    if ep.MatchingDomainAlias == nil {
+        ep.MatchingDomainAlias = []string{}
+    }
+
     switch ep.ProxyType {
     case dynamicproxy.ProxyTypeRoot:
         prepared, err := dynamicProxyRouter.PrepareProxyRoute(ep)
@@ -186,14 +207,15 @@ func HandleClusterProxyUpsert(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Record this node as a sync source
-    clusterManager.RecordSyncSource(req.OriginNodeID, getRequestSourceIP(r), "proxy")
+    // Record this node as a sync source (get hostname from header)
+    hostname := r.Header.Get("X-Zoraxy-Hostname")
+    clusterManager.RecordSyncSource(req.OriginNodeID, hostname, getRequestSourceIP(r), "proxy")
 
     // Mesh mode: auto-add peer if not already known
     clusterManager.AutoAddPeerFromRequest(r, req.OriginNodeID)
 
     if SystemWideLogger != nil {
-        SystemWideLogger.PrintAndLog("cluster", "Received proxy upsert from peer: "+req.Endpoint.RootOrMatchingDomain+" (node: "+req.OriginNodeID+")", nil)
+        SystemWideLogger.PrintAndLog("cluster", "Received proxy upsert from peer: "+req.Endpoint.RootOrMatchingDomain+" (node: "+req.OriginNodeID+", host: "+hostname+")", nil)
     }
 
     UpdateUptimeMonitorTargets()
@@ -253,8 +275,9 @@ func HandleClusterProxyDelete(w http.ResponseWriter, r *http.Request) {
         }
     }
 
-    // Record this node as a sync source
-    clusterManager.RecordSyncSource(req.OriginNodeID, getRequestSourceIP(r), "proxy-delete")
+    // Record this node as a sync source (get hostname from header)
+    hostname := r.Header.Get("X-Zoraxy-Hostname")
+    clusterManager.RecordSyncSource(req.OriginNodeID, hostname, getRequestSourceIP(r), "proxy-delete")
 
     // Mesh mode: auto-add peer if not already known
     clusterManager.AutoAddPeerFromRequest(r, req.OriginNodeID)
@@ -408,8 +431,9 @@ func HandleClusterCertSync(w http.ResponseWriter, r *http.Request) {
         tlsCertManager.UpdateLoadedCertList()
     }
 
-    // Record this node as a sync source
-    clusterManager.RecordSyncSource(payload.OriginNodeID, getRequestSourceIP(r), "cert")
+    // Record this node as a sync source (get hostname from header)
+    hostname := r.Header.Get("X-Zoraxy-Hostname")
+    clusterManager.RecordSyncSource(payload.OriginNodeID, hostname, getRequestSourceIP(r), "cert")
 
     // Mesh mode: auto-add peer if not already known
     clusterManager.AutoAddPeerFromRequest(r, payload.OriginNodeID)
@@ -601,8 +625,9 @@ func HandleClusterAccessRuleSync(w http.ResponseWriter, r *http.Request) {
         existingRule.SaveChanges()
     }
 
-    // Record this node as a sync source
-    clusterManager.RecordSyncSource(payload.OriginNodeID, getRequestSourceIP(r), "accessRule")
+    // Record this node as a sync source (get hostname from header)
+    hostname := r.Header.Get("X-Zoraxy-Hostname")
+    clusterManager.RecordSyncSource(payload.OriginNodeID, hostname, getRequestSourceIP(r), "accessRule")
 
     // Mesh mode: auto-add peer if not already known
     clusterManager.AutoAddPeerFromRequest(r, payload.OriginNodeID)
@@ -652,8 +677,9 @@ func HandleClusterAccessRuleDelete(w http.ResponseWriter, r *http.Request) {
         SystemWideLogger.PrintAndLog("cluster", "Deleted access rule from peer sync: "+payload.ID, nil)
     }
 
-    // Record this node as a sync source
-    clusterManager.RecordSyncSource(payload.OriginNodeID, getRequestSourceIP(r), "accessRule-delete")
+    // Record this node as a sync source (get hostname from header)
+    hostname := r.Header.Get("X-Zoraxy-Hostname")
+    clusterManager.RecordSyncSource(payload.OriginNodeID, hostname, getRequestSourceIP(r), "accessRule-delete")
 
     // Mesh mode: auto-add peer if not already known
     clusterManager.AutoAddPeerFromRequest(r, payload.OriginNodeID)
@@ -697,8 +723,9 @@ func HandleClusterRedirectSync(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Record this node as a sync source
-    clusterManager.RecordSyncSource(payload.OriginNodeID, getRequestSourceIP(r), "redirect")
+    // Record this node as a sync source (get hostname from header)
+    hostname := r.Header.Get("X-Zoraxy-Hostname")
+    clusterManager.RecordSyncSource(payload.OriginNodeID, hostname, getRequestSourceIP(r), "redirect")
 
     // Mesh mode: auto-add peer if not already known
     clusterManager.AutoAddPeerFromRequest(r, payload.OriginNodeID)
@@ -746,8 +773,9 @@ func HandleClusterRedirectDelete(w http.ResponseWriter, r *http.Request) {
         SystemWideLogger.PrintAndLog("cluster", "Deleted redirect rule from peer sync: "+payload.RedirectURL, nil)
     }
 
-    // Record this node as a sync source
-    clusterManager.RecordSyncSource(payload.OriginNodeID, getRequestSourceIP(r), "redirect-delete")
+    // Record this node as a sync source (get hostname from header)
+    hostname := r.Header.Get("X-Zoraxy-Hostname")
+    clusterManager.RecordSyncSource(payload.OriginNodeID, hostname, getRequestSourceIP(r), "redirect-delete")
 
     // Mesh mode: auto-add peer if not already known
     clusterManager.AutoAddPeerFromRequest(r, payload.OriginNodeID)
@@ -808,8 +836,9 @@ func HandleClusterAPITokenSync(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Record this node as a sync source
-    clusterManager.RecordSyncSource(payload.OriginNodeID, getRequestSourceIP(r), "apiToken")
+    // Record this node as a sync source (get hostname from header)
+    hostname := r.Header.Get("X-Zoraxy-Hostname")
+    clusterManager.RecordSyncSource(payload.OriginNodeID, hostname, getRequestSourceIP(r), "apiToken")
 
     // Mesh mode: auto-add peer if not already known
     clusterManager.AutoAddPeerFromRequest(r, payload.OriginNodeID)
@@ -855,8 +884,9 @@ func HandleClusterAPITokenDelete(w http.ResponseWriter, r *http.Request) {
         SystemWideLogger.PrintAndLog("cluster", "Deleted API token from peer sync: "+payload.TokenID, nil)
     }
 
-    // Record this node as a sync source
-    clusterManager.RecordSyncSource(payload.OriginNodeID, getRequestSourceIP(r), "apiToken-delete")
+    // Record this node as a sync source (get hostname from header)
+    hostname := r.Header.Get("X-Zoraxy-Hostname")
+    clusterManager.RecordSyncSource(payload.OriginNodeID, hostname, getRequestSourceIP(r), "apiToken-delete")
 
     // Mesh mode: auto-add peer if not already known
     clusterManager.AutoAddPeerFromRequest(r, payload.OriginNodeID)
@@ -895,13 +925,10 @@ func HandleClusterHeartbeat(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Log heartbeat received
-    if SystemWideLogger != nil {
-        SystemWideLogger.PrintAndLog("cluster", "Heartbeat received from "+req.Hostname+" ("+req.NodeID[:8]+"...)", nil)
-    }
+    // Note: Heartbeat received logs are throttled - status shown in heartbeat summary
 
-    // Record this node as a sync source
-    clusterManager.RecordSyncSource(req.NodeID, getRequestSourceIP(r), "heartbeat")
+    // Record this node as a sync source (use hostname from heartbeat request)
+    clusterManager.RecordSyncSource(req.NodeID, req.Hostname, getRequestSourceIP(r), "heartbeat")
 
     // Mesh mode: auto-add peer if not already known
     if req.AdvertiseAddr != "" {

@@ -343,7 +343,24 @@ networks:
                     let icon = p.lastSuccessUtc > 0 ? '<i class="green circle icon"></i>' : '<i class="grey circle outline icon"></i>';
                     let lastSeen = p.lastSuccessUtc > 0 ? new Date(p.lastSuccessUtc * 1000).toLocaleString() : "Never";
                     let errText = p.lastError ? ' <small class="ui red text">(' + p.lastError + ')</small>' : '';
-                    html += '<div class="item">' + icon + ' <b>' + (p.name || p.baseUrl) + '</b><br><small>Last seen: ' + lastSeen + errText + '</small></div>';
+
+                    // Prefer hostname for display, then configured name, then base URL
+                    let displayName = p.hostname || p.name || p.baseUrl || 'Unknown peer';
+
+                    // Tooltip shows internal details such as node ID and URL
+                    let tooltipParts = [];
+                    if (p.hostname) {
+                        tooltipParts.push('Host: ' + p.hostname);
+                    }
+                    if (p.nodeId) {
+                        tooltipParts.push('Node ID: ' + p.nodeId);
+                    }
+                    if (p.baseUrl) {
+                        tooltipParts.push('URL: ' + p.baseUrl);
+                    }
+                    let tooltip = tooltipParts.join(' | ');
+
+                    html += '<div class="item" title="' + tooltip + '">' + icon + ' <b>' + displayName + '</b><br><small>Last seen: ' + lastSeen + errText + '</small></div>';
                 });
                 $("#clusterPeerList").html(html);
             }
@@ -361,7 +378,12 @@ networks:
                     let icon = '<i class="blue download icon"></i>';
                     let lastSync = src.lastSyncUtc > 0 ? new Date(src.lastSyncUtc * 1000).toLocaleString() : "Never";
                     let syncType = src.lastSyncType || "unknown";
-                    html += '<div class="item">' + icon + ' <b>' + src.nodeId + '</b>';
+
+                    // Prefer hostname for display, fall back to node ID
+                    let displayName = src.hostname || src.nodeId || 'unknown';
+                    let tooltip = src.nodeId ? ('Node ID: ' + src.nodeId) : '';
+
+                    html += '<div class="item" title="' + tooltip + '">' + icon + ' <b>' + displayName + '</b>';
                     html += '<br><small>IP: ' + (src.sourceIp || 'unknown') + ' | Last sync: ' + lastSync + ' | Type: ' + syncType + '</small></div>';
                 });
                 $("#clusterSyncSources").html(html);

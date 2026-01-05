@@ -88,11 +88,59 @@ func (m *ClusterManager) sendHeartbeatsToAllPeers() {
 		return
 	}
 
+	peerCount := 0
 	for _, peer := range cfg.Peers {
 		if !peer.Enabled || peer.BaseURL == "" {
 			continue
 		}
+		peerCount++
 		go m.sendHeartbeatToPeer(peer, cfg, client)
+	}
+
+	// Log summary periodically (every 5 minutes by default)
+	if peerCount > 0 && m.shouldLogRoutine() {
+		m.logHeartbeatSummary()
+	}
+}
+
+// logHeartbeatSummary logs a summary of peer status
+func (m *ClusterManager) logHeartbeatSummary() {
+	if m.logger == nil {
+		return
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	online := 0
+	offline := 0
+	var onlinePeers []string
+	var offlinePeers []string
+
+	for _, peer := range m.cfg.Peers {
+		if !peer.Enabled {
+			continue
+		}
+		st := m.peerState[peer.BaseURL]
+		if st.Online {
+			online++
+			name := st.Hostname
+			if name == "" {
+				name = peer.Name
+			}
+			onlinePeers = append(onlinePeers, name)
+		} else {
+			offline++
+			offlinePeers = append(offlinePeers, peer.Name)
+		}
+	}
+
+	if offline == 0 {
+		m.logger.PrintAndLog("cluster", fmt.Sprintf("Heartbeat summary: %d peers online (%s)",
+			online, strings.Join(onlinePeers, ", ")), nil)
+	} else {
+		m.logger.PrintAndLog("cluster", fmt.Sprintf("Heartbeat summary: %d online, %d offline (online: %s, offline: %s)",
+			online, offline, strings.Join(onlinePeers, ", "), strings.Join(offlinePeers, ", ")), nil)
 	}
 }
 
@@ -161,10 +209,7 @@ func (m *ClusterManager) sendHeartbeatToPeer(peer ClusterPeer, cfg ClusterConfig
 	// Update peer status with hostname and node ID
 	m.updatePeerOnlineStatus(peer.BaseURL, true, heartbeatResp.Hostname, heartbeatResp.NodeID, "")
 
-	if m.logger != nil {
-		m.logger.PrintAndLog("cluster", fmt.Sprintf("Heartbeat OK from %s (hostname: %s, nodeId: %s)",
-			peer.BaseURL, heartbeatResp.Hostname, heartbeatResp.NodeID[:8]), nil)
-	}
+	// Note: Heartbeat OK messages are logged periodically via logHeartbeatSummary, not per-peer
 
 	// Mesh mode: learn about new peers from response
 	if cfg.MeshMode && len(heartbeatResp.KnownPeers) > 0 {

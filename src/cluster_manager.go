@@ -84,6 +84,7 @@ type ClusterStatus struct {
 // SyncSourceInfo tracks nodes that are syncing to this node
 type SyncSourceInfo struct {
 	NodeID       string `json:"nodeId"`
+	Hostname     string `json:"hostname"`
 	SourceIP     string `json:"sourceIp"`
 	LastSyncUTC  int64  `json:"lastSyncUtc"`
 	LastSyncType string `json:"lastSyncType"` // e.g., "proxy", "cert", "redirect", "accessRule"
@@ -134,6 +135,10 @@ type ClusterManager struct {
 	// Heartbeat settings
 	heartbeatStop     chan struct{}
 	heartbeatInterval time.Duration
+
+	// Logging throttle settings (to avoid flooding logs)
+	lastHeartbeatLogTime time.Time     // Last time we logged heartbeat status
+	logInterval          time.Duration // How often to log routine messages (default 5 min)
 }
 
 // NewClusterManager creates a new ClusterManager instance
@@ -151,13 +156,28 @@ func NewClusterManager(path, nodeID string, lg *logger.Logger) *ClusterManager {
 		syncSources:        make(map[string]SyncSourceInfo),
 		httpClient:         &http.Client{Timeout: 10 * time.Second}, // Longer timeout for cert transfers
 		localIPs:           make(map[string]bool),
-		heartbeatInterval:  15 * time.Second, // Default heartbeat interval
+		heartbeatInterval:  60 * time.Second,  // Heartbeat every 1 minute
+		logInterval:        5 * time.Minute,   // Log routine messages every 5 minutes
 	}
 }
 
 // GetHostname returns the cached hostname of this node
 func (m *ClusterManager) GetHostname() string {
 	return m.hostname
+}
+
+// shouldLogRoutine returns true if enough time has passed since the last routine log.
+// This prevents flooding the logs with heartbeat and sync messages.
+// It updates the last log time if logging should occur.
+func (m *ClusterManager) shouldLogRoutine() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := time.Now()
+	if now.Sub(m.lastHeartbeatLogTime) >= m.logInterval {
+		m.lastHeartbeatLogTime = now
+		return true
+	}
+	return false
 }
 
 // Load reads the cluster configuration from disk
@@ -413,10 +433,7 @@ func (m *ClusterManager) AutoAddPeerFromRequest(r *http.Request, originNodeID st
 
 	for _, p := range m.cfg.Peers {
 		if strings.TrimSuffix(p.BaseURL, "/") == advertiseURL {
-			// Peer already exists
-			if m.logger != nil {
-				m.logger.PrintAndLog("cluster", fmt.Sprintf("Mesh mode: Peer already exists: %s (node: %s)", advertiseURL, originNodeID), nil)
-			}
+			// Peer already exists - no log to avoid flooding
 			return false
 		}
 	}
@@ -559,11 +576,12 @@ func (m *ClusterManager) Status() ClusterStatus {
 }
 
 // RecordSyncSource records that a node has synced to us
-func (m *ClusterManager) RecordSyncSource(nodeID, sourceIP, syncType string) {
+func (m *ClusterManager) RecordSyncSource(nodeID, hostname, sourceIP, syncType string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.syncSources[nodeID] = SyncSourceInfo{
 		NodeID:       nodeID,
+		Hostname:     hostname,
 		SourceIP:     sourceIP,
 		LastSyncUTC:  time.Now().UTC().Unix(),
 		LastSyncType: syncType,

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -164,6 +165,11 @@ func ReverseProxyInit() {
 	if *bootstrapUI {
 		setupBootstrapUI()
 	}
+
+		// After all proxy routes are loaded, broadcast current configuration to cluster peers (if enabled)
+		if clusterManager != nil {
+			go clusterManager.BroadcastAllLocalProxies(context.Background(), dynamicProxyRouter)
+		}
 
 	//Start Service
 	//Not sure why but delay must be added if you have another
@@ -1507,6 +1513,10 @@ func ReverseProxyList(w http.ResponseWriter, r *http.Request) {
 		results := []*dynamicproxy.ProxyEndpoint{}
 		dynamicProxyRouter.ProxyEndpoints.Range(func(key, value interface{}) bool {
 			thisEndpoint := dynamicproxy.CopyEndpoint(value.(*dynamicproxy.ProxyEndpoint))
+			//Ensure AuthenticationProvider is not nil before accessing
+			if thisEndpoint.AuthenticationProvider == nil {
+				thisEndpoint.AuthenticationProvider = dynamicproxy.GetDefaultAuthenticationProvider()
+			}
 			//Clear the auth passwords before showing to front-end
 			cleanedCredentials := []*dynamicproxy.BasicAuthCredentials{}
 			for _, user := range thisEndpoint.AuthenticationProvider.BasicAuthCredentials {

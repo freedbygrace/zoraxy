@@ -65,3 +65,6 @@ www/html/index.html
 .DS_Store
 /build
 src/zoraxy.exe~
+
+# Local cluster testing
+/Testing/

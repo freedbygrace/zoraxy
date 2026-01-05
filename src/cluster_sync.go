@@ -123,6 +123,9 @@ const (
 // broadcast sends a payload to all enabled peers
 func (m *ClusterManager) broadcast(ctx context.Context, path string, payload interface{}) {
 	if m == nil {
+		if SystemWideLogger != nil {
+			SystemWideLogger.PrintAndLog("cluster", "broadcast: ClusterManager is nil", nil)
+		}
 		return
 	}
 	m.mu.RLock()
@@ -130,7 +133,16 @@ func (m *ClusterManager) broadcast(ctx context.Context, path string, payload int
 	client := m.httpClient
 	m.mu.RUnlock()
 
-	if !cfg.Enabled || cfg.SharedSecret == "" {
+	if !cfg.Enabled {
+		if m.logger != nil {
+			m.logger.PrintAndLog("cluster", "broadcast: cluster not enabled, skipping "+path, nil)
+		}
+		return
+	}
+	if cfg.SharedSecret == "" {
+		if m.logger != nil {
+			m.logger.PrintAndLog("cluster", "broadcast: no shared secret configured, skipping "+path, nil)
+		}
 		return
 	}
 
@@ -142,13 +154,16 @@ func (m *ClusterManager) broadcast(ctx context.Context, path string, payload int
 		return
 	}
 
+	peerCount := 0
 	for _, peer := range cfg.Peers {
 		if !peer.Enabled || peer.BaseURL == "" {
 			continue
 		}
+		peerCount++
 		// Send to each peer in its own goroutine with retry logic
 		go m.sendToPeerWithRetry(ctx, peer, path, body, cfg.SharedSecret, client)
 	}
+	// Note: Broadcast logs are throttled to avoid flooding - status shown in heartbeat summary
 }
 
 // sendToPeerWithRetry sends a payload to a peer with exponential backoff retry
@@ -188,6 +203,7 @@ func (m *ClusterManager) sendToPeerWithRetry(ctx context.Context, peer ClusterPe
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-Zoraxy-Cluster-Secret", secret)
 		req.Header.Set("X-Zoraxy-Node-ID", m.nodeID)
+		req.Header.Set("X-Zoraxy-Hostname", m.hostname)
 		// Include advertise URL for mesh mode peer discovery
 		if advertiseAddr := m.GetAdvertiseAddr(); advertiseAddr != "" {
 			req.Header.Set("X-Zoraxy-Advertise-URL", advertiseAddr)
@@ -202,9 +218,7 @@ func (m *ClusterManager) sendToPeerWithRetry(ctx context.Context, peer ClusterPe
 
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			m.recordPeerResult(peer.BaseURL, true, "")
-			if m.logger != nil {
-				m.logger.PrintAndLog("cluster", fmt.Sprintf("Synced to peer %s: %s", peer.BaseURL, path), nil)
-			}
+			// Note: Success logs are throttled - summary logged via heartbeat
 			return // Success!
 		}
 
@@ -240,9 +254,6 @@ func (m *ClusterManager) BroadcastProxyUpsert(ctx context.Context, ep *dynamicpr
 		return
 	}
 	if !m.IsSyncProxiesEnabled() {
-		if m.logger != nil {
-			m.logger.PrintAndLog("cluster", "Proxy sync disabled, skipping broadcast for: "+ep.RootOrMatchingDomain, nil)
-		}
 		return
 	}
 	if m.logger != nil {
@@ -256,6 +267,50 @@ func (m *ClusterManager) BroadcastProxyUpsert(ctx context.Context, ep *dynamicpr
 	m.broadcast(ctx, "/cluster/proxy/upsert", req)
 }
 
+	// BroadcastAllLocalProxies broadcasts all currently configured proxy endpoints
+	// (root endpoint and host-based endpoints) to all cluster peers.
+	//
+	// This is intended for startup/full-sync scenarios so that existing
+	// on-disk configurations are propagated to other nodes when the
+	// cluster feature is enabled.
+	func (m *ClusterManager) BroadcastAllLocalProxies(ctx context.Context, router *dynamicproxy.Router) {
+		if m == nil || router == nil {
+			return
+		}
+		if !m.IsEnabled() {
+			return
+		}
+		if !m.IsSyncProxiesEnabled() {
+			return
+		}
+
+		if m.logger != nil {
+			m.logger.PrintAndLog("cluster", "Broadcasting full proxy configuration to peers", nil)
+		}
+
+		// Broadcast root endpoint first (default site), if configured
+		if router.Root != nil {
+			if epCopy := dynamicproxy.CopyEndpoint(router.Root); epCopy != nil {
+				m.BroadcastProxyUpsert(ctx, epCopy)
+			}
+		}
+
+		// Broadcast all host-based endpoints
+		endpoints := router.GetProxyEndpointsAsMap()
+		for _, ep := range endpoints {
+			if ep == nil {
+				continue
+			}
+			// Skip root-type endpoints here; they are handled explicitly above
+			if ep.ProxyType == dynamicproxy.ProxyTypeRoot {
+				continue
+			}
+			if epCopy := dynamicproxy.CopyEndpoint(ep); epCopy != nil {
+				m.BroadcastProxyUpsert(ctx, epCopy)
+			}
+		}
+	}
+
 // BroadcastProxyDelete broadcasts a proxy endpoint deletion to all peers
 func (m *ClusterManager) BroadcastProxyDelete(ctx context.Context, rootOrDomain string) {
 	if m == nil || rootOrDomain == "" {
@@ -265,9 +320,6 @@ func (m *ClusterManager) BroadcastProxyDelete(ctx context.Context, rootOrDomain 
 		return
 	}
 	if !m.IsSyncProxiesEnabled() {
-		if m.logger != nil {
-			m.logger.PrintAndLog("cluster", "Proxy sync disabled, skipping delete broadcast for: "+rootOrDomain, nil)
-		}
 		return
 	}
 	if m.logger != nil {
